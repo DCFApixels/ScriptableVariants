@@ -8,7 +8,7 @@ namespace DCFApixels.ScriptableVariants.Tests
 {
     public sealed class ScriptableVariantTests
     {
-        private readonly List<TestVariant> _created = new List<TestVariant>();
+        private readonly List<ScriptableObject> _created = new List<ScriptableObject>();
 
         [TearDown]
         public void TearDown()
@@ -296,9 +296,26 @@ namespace DCFApixels.ScriptableVariants.Tests
             Assert.That(error, Does.Contain("cycle"));
         }
 
+        [Test]
+        public void GenericConvenienceBaseStillProvidesTypedParent()
+        {
+            var parent = CreateVariant<TypedTestVariant>();
+            var child = CreateVariant<TypedTestVariant>();
+
+            child.EditorSetParent(parent);
+
+            TypedTestVariant typedParent = child.Parent;
+            Assert.That(typedParent, Is.SameAs(parent));
+        }
+
         private TestVariant CreateVariant()
         {
-            var variant = ScriptableObject.CreateInstance<TestVariant>();
+            return CreateVariant<TestVariant>();
+        }
+
+        private T CreateVariant<T>() where T : ScriptableObject
+        {
+            var variant = ScriptableObject.CreateInstance<T>();
             _created.Add(variant);
             return variant;
         }
@@ -329,7 +346,7 @@ namespace DCFApixels.ScriptableVariants.Tests
         }
     }
 
-    public sealed class TestVariant : ScriptableVariant<TestVariant>
+    public abstract class TestVariantBase : ScriptableVariant
     {
         [SerializeField]
         private int _number;
@@ -410,5 +427,13 @@ namespace DCFApixels.ScriptableVariants.Tests
             _localNote = value;
             EditorNotifyValuesChanged();
         }
+    }
+
+    public sealed class TestVariant : TestVariantBase
+    {
+    }
+
+    public sealed class TypedTestVariant : ScriptableVariant<TypedTestVariant>
+    {
     }
 }

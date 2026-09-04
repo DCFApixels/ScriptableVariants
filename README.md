@@ -33,7 +33,7 @@ using TriInspector;
 using UnityEngine;
 
 [CreateAssetMenu(menuName = "Game/Weapon Config")]
-public sealed class WeaponConfig : ScriptableVariant<WeaponConfig>
+public sealed class WeaponConfig : ScriptableVariant
 {
     [SerializeField, Min(0), Slider(0, 100)]
     private float _damage = 10;
@@ -49,6 +49,30 @@ public sealed class WeaponConfig : ScriptableVariant<WeaponConfig>
             return _damage;
         }
     }
+}
+```
+
+Deriving directly from `ScriptableVariant` is the primary API and keeps regular C# inheritance
+simple. `ScriptableVariant<TSelf>` remains available as an optional convenience when a strongly
+typed `Parent` property is preferred:
+
+```csharp
+public abstract class WeaponConfigBase : ScriptableVariant
+{
+    // Shared serialized fields and behavior.
+}
+
+public sealed class RifleConfig : WeaponConfigBase
+{
+    // Rifle-specific fields and behavior.
+}
+```
+
+The generic convenience remains available when no intermediate C# base class is needed:
+
+```csharp
+public sealed class SimpleConfig : ScriptableVariant<SimpleConfig>
+{
 }
 ```
 

@@ -4,6 +4,9 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Made non-generic `ScriptableVariant` the primary API while retaining
+  `ScriptableVariant<TSelf>` as an optional typed convenience base.
+
 ## 0.1.1 - 2026-09-04
 
 - Moved the parent selector, inheritance chain, and actions into Unity's native Inspector header.

@@ -24,7 +24,7 @@ namespace DCFApixels.ScriptableVariants.Demo
     [CreateAssetMenu(
         fileName = "Weapon Variant",
         menuName = "Scriptable Variants Demo/Weapon Config")]
-    public sealed class DemoWeaponConfig : ScriptableVariant<DemoWeaponConfig>
+    public sealed class DemoWeaponConfig : ScriptableVariant
     {
         [Header("Identity")]
         [SerializeField]

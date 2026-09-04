@@ -38,7 +38,7 @@ namespace DCFApixels.ScriptableVariants
 
         private static readonly List<ScriptableVariant> ActiveVariants = new List<ScriptableVariant>();
 
-        /// <summary>Untyped parent asset. Prefer the typed property on ScriptableVariant&lt;TSelf&gt;.</summary>
+        /// <summary>The parent asset. Use ScriptableVariant&lt;TSelf&gt; when a typed Parent is convenient.</summary>
         public ScriptableVariant Parent => _variantParent;
 
         public bool HasParent => _variantParent != null;
@@ -646,7 +646,7 @@ namespace DCFApixels.ScriptableVariants
         }
     }
 
-    /// <summary>Strongly typed convenience base for a family of variants.</summary>
+    /// <summary>Optional strongly typed convenience base for a family of variants.</summary>
     public abstract class ScriptableVariant<TSelf> : ScriptableVariant
         where TSelf : ScriptableVariant<TSelf>
     {
