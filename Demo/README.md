@@ -4,7 +4,7 @@ The three ready-made assets in `Assets` form this chain:
 
 `Weapon_Base` → `Weapon_Fire` → `Weapon_Fire_Boss`
 
-Select them in this order and compare the override markers in Tri Inspector.
+Select them in this order and compare the blue override bars in Tri Inspector.
 
 ## What the demo shows
 
@@ -17,9 +17,10 @@ Select them in this order and compare the override markers in Tri Inspector.
 
 1. Change `Damage` on `Weapon_Base`: both descendants update unless they override it.
 2. Change `Projectile Color` on `Weapon_Fire`: the boss inherits the new color.
-3. Click the circle beside `Cooldown` on the boss, then give it a local value.
-4. Revert that override and confirm that the root value returns.
-5. Use **Flatten** on a duplicate of the boss asset to detach it while keeping effective values.
+3. Edit `Cooldown` on the boss: it becomes a local override and gains a blue bar.
+4. Open the same context menu, choose **Revert**, and confirm that the root value returns.
+5. Use **Actions → Flatten** on a duplicate of the boss asset to detach it while keeping
+   effective values.
 
 You can create more roots through **Assets → Create → Scriptable Variants Demo → Weapon Config**
-and create descendants with **Create Child** in the Inspector.
+and create descendants by assigning their **Parent** in the Inspector header.

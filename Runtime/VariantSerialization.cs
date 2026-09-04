@@ -68,9 +68,82 @@ namespace DCFApixels.ScriptableVariants
             return TryResolvePath(rootType, propertyPath, false, out _);
         }
 
+        internal static bool IsAtomicOverridePath(Type rootType, string propertyPath)
+        {
+            if (!TryGetFieldPath(rootType, propertyPath, out var fields) || fields.Length == 0)
+            {
+                return false;
+            }
+
+            var field = fields[fields.Length - 1];
+            return field.IsDefined(typeof(SerializeReference), true) ||
+                   !IsInlineComposite(field.FieldType);
+        }
+
         internal static bool TryRemapFormerPath(Type rootType, string oldPath, out string remappedPath)
         {
             return TryResolvePath(rootType, oldPath, true, out remappedPath);
+        }
+
+        internal static bool CopyPathValue(
+            ScriptableVariant source,
+            ScriptableVariant destination,
+            string propertyPath)
+        {
+            if (source == null || destination == null || source.GetType() != destination.GetType() ||
+                !TryGetFieldPath(source.GetType(), propertyPath, out var fields))
+            {
+                return false;
+            }
+
+            var sourceContainers = new object[fields.Length];
+            object sourceValue = source;
+            for (var i = 0; i < fields.Length; i++)
+            {
+                if (sourceValue == null)
+                {
+                    return false;
+                }
+
+                sourceContainers[i] = sourceValue;
+                sourceValue = fields[i].GetValue(sourceValue);
+            }
+
+            var cloneContext = new Dictionary<object, object>(ObjectReferenceComparer.Instance);
+            var clonedValue = CloneValue(sourceValue, cloneContext);
+            return TrySetPathValue(
+                destination,
+                sourceContainers,
+                fields,
+                0,
+                clonedValue,
+                cloneContext,
+                out _);
+        }
+
+        internal static bool CanCopyPathValue(
+            ScriptableVariant source,
+            ScriptableVariant destination,
+            string propertyPath)
+        {
+            if (source == null || destination == null || source.GetType() != destination.GetType() ||
+                !TryGetFieldPath(source.GetType(), propertyPath, out var fields))
+            {
+                return false;
+            }
+
+            object sourceValue = source;
+            for (var i = 0; i < fields.Length; i++)
+            {
+                if (sourceValue == null)
+                {
+                    return false;
+                }
+
+                sourceValue = fields[i].GetValue(sourceValue);
+            }
+
+            return true;
         }
 
         private static object MergeField(
@@ -426,6 +499,96 @@ namespace DCFApixels.ScriptableVariants
             }
 
             resolvedPath = string.Join(".", resolvedSegments);
+            return true;
+        }
+
+        private static bool TryGetFieldPath(Type rootType, string propertyPath, out FieldInfo[] fields)
+        {
+            fields = null;
+            if (string.IsNullOrEmpty(propertyPath) || propertyPath.Contains("Array.data["))
+            {
+                return false;
+            }
+
+            var segments = propertyPath.Split('.');
+            var result = new FieldInfo[segments.Length];
+            var currentType = rootType;
+
+            for (var i = 0; i < segments.Length; i++)
+            {
+                var candidates = i == 0 ? GetRootFields(currentType) : GetSerializableFields(currentType);
+                var field = FindField(candidates, segments[i], false);
+                if (field == null || field.IsDefined(typeof(VariantLocalAttribute), true))
+                {
+                    return false;
+                }
+
+                result[i] = field;
+                if (i == segments.Length - 1)
+                {
+                    continue;
+                }
+
+                if (field.IsDefined(typeof(SerializeReference), true) || !IsInlineComposite(field.FieldType))
+                {
+                    return false;
+                }
+
+                currentType = field.FieldType;
+            }
+
+            fields = result;
+            return true;
+        }
+
+        private static bool TrySetPathValue(
+            object target,
+            object[] sourceContainers,
+            FieldInfo[] fields,
+            int fieldIndex,
+            object value,
+            Dictionary<object, object> cloneContext,
+            out object updatedTarget)
+        {
+            updatedTarget = target;
+            if (target == null)
+            {
+                return false;
+            }
+
+            var field = fields[fieldIndex];
+            if (fieldIndex == fields.Length - 1)
+            {
+                field.SetValue(target, value);
+                updatedTarget = target;
+                return true;
+            }
+
+            var nestedTarget = field.GetValue(target);
+            if (nestedTarget == null)
+            {
+                var sourceNestedTarget = field.GetValue(sourceContainers[fieldIndex]);
+                nestedTarget = CloneValue(sourceNestedTarget, cloneContext);
+                if (nestedTarget == null)
+                {
+                    return false;
+                }
+            }
+
+            if (!TrySetPathValue(
+                    nestedTarget,
+                    sourceContainers,
+                    fields,
+                    fieldIndex + 1,
+                    value,
+                    cloneContext,
+                    out var updatedNestedTarget))
+            {
+                return false;
+            }
+
+            field.SetValue(target, updatedNestedTarget);
+            updatedTarget = target;
             return true;
         }
 

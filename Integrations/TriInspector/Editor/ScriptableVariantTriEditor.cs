@@ -72,10 +72,25 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             parentField.SetValueWithoutNotify(_variant.Parent);
             container.Add(parentField);
 
+            var statusRow = new Toolbar();
+            statusRow.style.marginTop = 2;
+
             var chainLabel = new Label();
             chainLabel.style.unityFontStyleAndWeight = FontStyle.Italic;
-            chainLabel.style.marginTop = 2;
-            container.Add(chainLabel);
+            chainLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+            chainLabel.style.flexGrow = 1;
+            chainLabel.style.flexShrink = 1;
+            chainLabel.style.paddingLeft = 4;
+            statusRow.Add(chainLabel);
+
+            var actionsMenu = new ToolbarMenu
+            {
+                text = "Actions",
+                tooltip = "Scriptable Variant actions",
+                variant = ToolbarMenu.Variant.Popup,
+            };
+            statusRow.Add(actionsMenu);
+            container.Add(statusRow);
 
             var errorBox = new HelpBox(string.Empty, HelpBoxMessageType.Error);
             errorBox.style.display = DisplayStyle.None;
@@ -85,55 +100,37 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             orphanBox.style.display = DisplayStyle.None;
             container.Add(orphanBox);
 
-            var actions = new VisualElement();
-            actions.style.flexDirection = FlexDirection.Row;
-            actions.style.flexWrap = Wrap.Wrap;
-            actions.style.marginTop = 4;
-
-            var createChildButton = new Button(() => ScriptableVariantAssetUtility.CreateChild(_variant))
-            {
-                text = "Create Child",
-            };
-            var overrideAllButton = new Button(() =>
+            actionsMenu.menu.AppendAction("Override All", _ =>
             {
                 ScriptableVariantAssetUtility.OverrideAll(_variant);
                 serializedObject.Update();
-            })
-            {
-                text = "Override All",
-            };
-            var revertAllButton = new Button(() =>
+            }, _ => _variant != null && _variant.HasParent
+                ? DropdownMenuAction.Status.Normal
+                : DropdownMenuAction.Status.Disabled);
+            actionsMenu.menu.AppendAction("Revert All", _ =>
             {
                 ScriptableVariantAssetUtility.RevertAll(_variant);
                 serializedObject.Update();
-            })
-            {
-                text = "Revert All",
-            };
-            var flattenButton = new Button(() =>
+            }, _ => _variant != null && _variant.HasParent && _variant.OverridePaths.Count > 0
+                ? DropdownMenuAction.Status.Normal
+                : DropdownMenuAction.Status.Disabled);
+            actionsMenu.menu.AppendSeparator();
+            actionsMenu.menu.AppendAction("Flatten", _ =>
             {
                 ScriptableVariantAssetUtility.Flatten(_variant);
                 parentField.SetValueWithoutNotify(null);
                 serializedObject.Update();
-            })
-            {
-                text = "Flatten",
-            };
-            var removeOrphansButton = new Button(() =>
+            }, _ => _variant != null && _variant.HasParent
+                ? DropdownMenuAction.Status.Normal
+                : DropdownMenuAction.Status.Disabled);
+            actionsMenu.menu.AppendSeparator();
+            actionsMenu.menu.AppendAction("Remove Orphan Overrides", _ =>
             {
                 ScriptableVariantAssetUtility.RemoveOrphanOverrides(_variant);
                 serializedObject.Update();
-            })
-            {
-                text = "Remove Orphans",
-            };
-
-            actions.Add(createChildButton);
-            actions.Add(overrideAllButton);
-            actions.Add(revertAllButton);
-            actions.Add(flattenButton);
-            actions.Add(removeOrphansButton);
-            container.Add(actions);
+            }, _ => _variant != null && _variant.EditorGetOrphanOverrides().Length > 0
+                ? DropdownMenuAction.Status.Normal
+                : DropdownMenuAction.Status.Disabled);
 
             parentField.RegisterValueChangedCallback(evt =>
             {
@@ -162,11 +159,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     parentField.SetValueWithoutNotify(_variant.Parent);
                 }
 
+                statusRow.SetEnabled(_variant.HasParent);
                 chainLabel.text = ScriptableVariantAssetUtility.GetChainLabel(_variant);
-                var hasParent = _variant.HasParent;
-                overrideAllButton.SetEnabled(hasParent);
-                revertAllButton.SetEnabled(hasParent && _variant.OverridePaths.Count > 0);
-                flattenButton.SetEnabled(hasParent);
 
                 var orphans = _variant.EditorGetOrphanOverrides();
                 var hasOrphans = orphans.Length > 0;
@@ -174,7 +168,6 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     ? "Unknown override paths: " + string.Join(", ", orphans)
                     : string.Empty;
                 orphanBox.style.display = hasOrphans ? DisplayStyle.Flex : DisplayStyle.None;
-                removeOrphansButton.style.display = hasOrphans ? DisplayStyle.Flex : DisplayStyle.None;
             }
 
             container.schedule.Execute(RefreshHeader).Every(100);

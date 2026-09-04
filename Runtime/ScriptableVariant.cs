@@ -224,6 +224,11 @@ namespace DCFApixels.ScriptableVariants
 
         internal void EditorSetParent(ScriptableVariant parent)
         {
+            EditorSetParent(parent, null);
+        }
+
+        internal void EditorSetParent(ScriptableVariant parent, IReadOnlyList<string> additionalOverridePaths)
+        {
             if (!CanAssignParent(parent, out var error))
             {
                 throw new ArgumentException(error, nameof(parent));
@@ -235,6 +240,17 @@ namespace DCFApixels.ScriptableVariants
             }
 
             EnsureResolved();
+            if (parent != null && additionalOverridePaths != null && additionalOverridePaths.Count > 0)
+            {
+                NormalizeOverridePaths();
+                for (var i = 0; i < additionalOverridePaths.Count; i++)
+                {
+                    AddOverridePath(additionalOverridePaths[i]);
+                }
+
+                SortAndDeduplicateOverrides();
+            }
+
             _variantParent = parent;
             _resolutionErrorLogged = false;
             InvalidateResolvedData();
@@ -275,7 +291,21 @@ namespace DCFApixels.ScriptableVariants
 
             if (enabled)
             {
-                _variantOverrides.Add(propertyPath);
+                var controlledByAncestor = false;
+                for (var separator = propertyPath.LastIndexOf('.'); separator > 0;
+                     separator = propertyPath.LastIndexOf('.', separator - 1))
+                {
+                    if (GetOverrideLookup().Contains(propertyPath.Substring(0, separator)))
+                    {
+                        controlledByAncestor = true;
+                        break;
+                    }
+                }
+
+                if (!controlledByAncestor)
+                {
+                    _variantOverrides.Add(propertyPath);
+                }
             }
 
             SortAndDeduplicateOverrides();
@@ -345,6 +375,44 @@ namespace DCFApixels.ScriptableVariants
                 if (!VariantSerialization.IsKnownPath(GetType(), _variantOverrides[i]))
                 {
                     result.Add(_variantOverrides[i]);
+                }
+            }
+
+            return result.ToArray();
+        }
+
+        internal string[] EditorGetOverridesAffectingSubtree(string propertyPath)
+        {
+            NormalizeOverridePaths();
+            if (string.IsNullOrEmpty(propertyPath))
+            {
+                return Array.Empty<string>();
+            }
+
+            var lookup = GetOverrideLookup();
+            if (lookup.Contains(propertyPath))
+            {
+                return new[] {propertyPath};
+            }
+
+            for (var separator = propertyPath.LastIndexOf('.'); separator > 0;
+                 separator = propertyPath.LastIndexOf('.', separator - 1))
+            {
+                var ancestorPath = propertyPath.Substring(0, separator);
+                if (lookup.Contains(ancestorPath))
+                {
+                    return new[] {ancestorPath};
+                }
+            }
+
+            var prefix = propertyPath + ".";
+            var result = new List<string>();
+            for (var i = 0; i < _variantOverrides.Count; i++)
+            {
+                var candidate = _variantOverrides[i];
+                if (candidate.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    result.Add(candidate);
                 }
             }
 
@@ -469,6 +537,36 @@ namespace DCFApixels.ScriptableVariants
             }
 
             _overrideLookup = null;
+        }
+
+        private void AddOverridePath(string propertyPath)
+        {
+            if (string.IsNullOrEmpty(propertyPath) ||
+                !VariantSerialization.IsKnownPath(GetType(), propertyPath))
+            {
+                return;
+            }
+
+            for (var i = 0; i < _variantOverrides.Count; i++)
+            {
+                var existing = _variantOverrides[i];
+                if (string.Equals(existing, propertyPath, StringComparison.Ordinal) ||
+                    propertyPath.StartsWith(existing + ".", StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+
+            var prefix = propertyPath + ".";
+            for (var i = _variantOverrides.Count - 1; i >= 0; i--)
+            {
+                if (_variantOverrides[i].StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    _variantOverrides.RemoveAt(i);
+                }
+            }
+
+            _variantOverrides.Add(propertyPath);
         }
 
         private HashSet<string> GetOverrideLookup()

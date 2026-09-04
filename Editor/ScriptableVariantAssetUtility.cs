@@ -21,8 +21,17 @@ namespace DCFApixels.ScriptableVariants.Editor
                 return false;
             }
 
+            if (ReferenceEquals(variant.Parent, parent))
+            {
+                return true;
+            }
+
+            var differingPaths = parent != null
+                ? GetDifferingOverridePaths(variant, parent)
+                : null;
+
             Undo.RecordObject(variant, "Change Scriptable Variant Parent");
-            variant.EditorSetParent(parent);
+            variant.EditorSetParent(parent, differingPaths);
             MarkChanged(variant);
             return true;
         }
@@ -37,6 +46,89 @@ namespace DCFApixels.ScriptableVariants.Editor
             Undo.RecordObject(variant, enabled ? "Override Variant Property" : "Revert Variant Property");
             variant.EditorSetOverride(propertyPath, enabled);
             MarkChanged(variant);
+        }
+
+        public static void Revert(ScriptableVariant variant, string propertyPath)
+        {
+            if (variant == null || string.IsNullOrEmpty(propertyPath))
+            {
+                return;
+            }
+
+            var overridePaths = variant.EditorGetOverridesAffectingSubtree(propertyPath);
+            if (overridePaths.Length == 0)
+            {
+                return;
+            }
+
+            Undo.RecordObject(variant, "Revert Variant Property");
+            for (var i = 0; i < overridePaths.Length; i++)
+            {
+                variant.EditorSetOverride(overridePaths[i], false);
+            }
+
+            MarkChanged(variant);
+        }
+
+        public static bool ApplyToParent(ScriptableVariant variant, string propertyPath)
+        {
+            if (variant == null || variant.Parent == null || string.IsNullOrEmpty(propertyPath))
+            {
+                return false;
+            }
+
+            var overridePaths = variant.EditorGetOverridesAffectingSubtree(propertyPath);
+            if (overridePaths.Length == 0)
+            {
+                return false;
+            }
+
+            var parent = variant.Parent;
+            variant.EnsureResolved();
+            parent.EnsureResolved();
+
+            for (var i = 0; i < overridePaths.Length; i++)
+            {
+                if (!VariantSerialization.CanCopyPathValue(variant, parent, overridePaths[i]))
+                {
+                    return false;
+                }
+            }
+
+            Undo.RecordObjects(
+                new UnityEngine.Object[] {variant, parent},
+                "Apply Scriptable Variant Override to Parent");
+
+            var copiedPaths = new List<string>(overridePaths.Length);
+            for (var i = 0; i < overridePaths.Length; i++)
+            {
+                var path = overridePaths[i];
+                if (parent.HasParent)
+                {
+                    parent.EditorSetOverride(path, true);
+                }
+
+                if (VariantSerialization.CopyPathValue(variant, parent, path))
+                {
+                    copiedPaths.Add(path);
+                }
+            }
+
+            if (copiedPaths.Count == 0)
+            {
+                return false;
+            }
+
+            parent.EditorNotifyValuesChanged();
+            MarkChanged(parent);
+
+            for (var i = 0; i < copiedPaths.Count; i++)
+            {
+                variant.EditorSetOverride(copiedPaths[i], false);
+            }
+
+            MarkChanged(variant);
+            return true;
         }
 
         public static void RevertAll(ScriptableVariant variant)
@@ -97,6 +189,77 @@ namespace DCFApixels.ScriptableVariants.Editor
             variant.EditorNotifyValuesChanged();
             variant.EnsureResolved();
             EditorUtility.SetDirty(variant);
+        }
+
+        internal static bool ValueMatchesParent(ScriptableVariant variant, string propertyPath)
+        {
+            if (variant == null || variant.Parent == null || string.IsNullOrEmpty(propertyPath))
+            {
+                return false;
+            }
+
+            variant.EnsureResolved();
+            using (var childObject = new SerializedObject(variant))
+            using (var parentObject = new SerializedObject(variant.Parent))
+            {
+                childObject.Update();
+                parentObject.Update();
+
+                var childProperty = childObject.FindProperty(propertyPath);
+                var parentProperty = parentObject.FindProperty(propertyPath);
+                return childProperty != null && parentProperty != null &&
+                       SerializedProperty.DataEquals(childProperty, parentProperty);
+            }
+        }
+
+        private static List<string> GetDifferingOverridePaths(
+            ScriptableVariant variant,
+            ScriptableVariant parent)
+        {
+            variant.EnsureResolved();
+            parent.EnsureResolved();
+
+            var result = new List<string>();
+            var variantType = variant.GetType();
+            using (var childObject = new SerializedObject(variant))
+            using (var parentObject = new SerializedObject(parent))
+            {
+                childObject.Update();
+                parentObject.Update();
+
+                var childProperty = childObject.GetIterator();
+                var enterChildren = true;
+                while (childProperty.Next(enterChildren))
+                {
+                    enterChildren = true;
+                    var propertyPath = childProperty.propertyPath;
+                    if (!VariantSerialization.IsKnownPath(variantType, propertyPath))
+                    {
+                        continue;
+                    }
+
+                    var parentProperty = parentObject.FindProperty(propertyPath);
+                    if (parentProperty == null)
+                    {
+                        continue;
+                    }
+
+                    if (SerializedProperty.DataEquals(childProperty, parentProperty))
+                    {
+                        enterChildren = false;
+                        continue;
+                    }
+
+                    if (VariantSerialization.IsAtomicOverridePath(variantType, propertyPath) ||
+                        !childProperty.hasChildren)
+                    {
+                        result.Add(propertyPath);
+                        enterChildren = false;
+                    }
+                }
+            }
+
+            return result;
         }
 
         public static ScriptableVariant CreateChild(ScriptableVariant parent)

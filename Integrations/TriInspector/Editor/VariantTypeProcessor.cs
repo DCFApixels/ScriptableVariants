@@ -15,13 +15,12 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             for (var i = 0; i < properties.Count; i++)
             {
                 var property = properties[i];
-                if (!property.TryGetMemberInfo(out var memberInfo) || !(memberInfo is FieldInfo field))
+                if (!property.TryGetMemberInfo(out var memberInfo) || !(memberInfo is FieldInfo))
                 {
                     continue;
                 }
 
-                if (field.IsDefined(typeof(VariantLocalAttribute), true) ||
-                    property.GetEditableAttributes().Exists(attribute => attribute is VariantPropertyAttribute))
+                if (property.GetEditableAttributes().Exists(attribute => attribute is VariantPropertyAttribute))
                 {
                     continue;
                 }

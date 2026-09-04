@@ -50,17 +50,22 @@ public sealed class WeaponConfig : ScriptableVariant<WeaponConfig>
 }
 ```
 
-Create a root asset normally, then use **Create Child** in its Inspector. A child reads all
-values from its parent until the circle next to a property is clicked:
+Create assets normally and assign another asset of the exact same type to **Parent** in the
+Inspector header. A child reads all values from its parent. A thin blue line marks a local
+override; a softer blue line on a container means that it contains overridden child fields.
+Locally controlled property labels and displayed field values use bold text.
 
-- `○` inherited;
-- `●` overridden on this asset;
-- `◐` contains overridden child fields;
-- `◆` controlled by an override on an owning object.
+When **Parent** is assigned or changed, the asset's current effective values are compared with
+the new parent's values. Every difference becomes a local override, while existing overrides
+remain. Equal properties continue inheriting from the new parent; `[VariantLocal]` fields are
+kept local and are not added to the override list.
 
-Turning an override on preserves the currently inherited value. Reverting it discards the
-local value and restores the value from the nearest ancestor. **Flatten** removes the parent
-while preserving all currently effective values.
+Editing an inherited property automatically creates an override while preserving the rest of
+the inherited data. Right-click an overridden property or its left gutter to open the variant
+actions. **Apply to Parent** moves the local value to the immediate parent. **Revert** discards
+the local value and restores the value from the nearest ancestor. The same menu can explicitly
+create an override without changing its value. **Actions → Flatten** removes the parent while
+preserving all currently effective values.
 
 ## Runtime contract
 
@@ -93,6 +98,9 @@ with **Remove Orphans**.
 The integration wraps Tri Inspector's existing visual-element drawer chain. Tri attributes
 such as groups, validation, conditionals, custom drawers, and value-change callbacks remain
 responsible for rendering the actual value field.
+
+Variant actions are added to Unity's property context menu. The blue override gutter has the
+same context menu as a fallback for custom Tri Inspector controls that consume the field event.
 
 The integration targets the pinned Tri Inspector commit above so preview API changes cannot
 silently break its editor bindings.
