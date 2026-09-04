@@ -16,13 +16,13 @@ transitive dependency. Add both Git dependencies to the consuming project's
 {
   "dependencies": {
     "com.codewriter.triinspector": "https://github.com/codewriter-packages/Tri-Inspector.git#f3239650e307275edd06c25e7cda1fdc7207f5b5",
-    "com.dcfapixels.scriptable-variants": "https://github.com/DCFApixels/ScriptableVariants.git#v0.1.1"
+    "com.dcfapixels.scriptable-variants": "https://github.com/DCFApixels/ScriptableVariants.git#v0.1.2"
   }
 }
 ```
 
 Alternatively, add Tri Inspector first and then use **Package Manager → Add package from git
-URL** with `https://github.com/DCFApixels/ScriptableVariants.git#v0.1.1`.
+URL** with `https://github.com/DCFApixels/ScriptableVariants.git#v0.1.2`.
 Authentication must already be configured for the private repository's HTTPS or SSH URL.
 
 ## Quick start

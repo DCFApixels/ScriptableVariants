@@ -4,6 +4,8 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+## 0.1.2 - 2026-09-04
+
 - Made non-generic `ScriptableVariant` the primary API while retaining
   `ScriptableVariant<TSelf>` as an optional typed convenience base.
 
