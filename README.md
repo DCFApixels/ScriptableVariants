@@ -51,9 +51,10 @@ public sealed class WeaponConfig : ScriptableVariant<WeaponConfig>
 ```
 
 Create assets normally and assign another asset of the exact same type to **Parent** in the
-Inspector header. A child reads all values from its parent. A thin blue line marks a local
-override; a softer blue line on a container means that it contains overridden child fields.
-Locally controlled property labels and displayed field values use bold text.
+native Inspector header. The same header shows the inheritance chain and the **Actions** menu.
+A child reads all values from its parent. A thin blue line marks a local override; a softer blue
+line on a container means that it contains overridden child fields. Locally controlled property
+labels and displayed field values use bold text.
 
 When **Parent** is assigned or changed, the asset's current effective values are compared with
 the new parent's values. Every difference becomes a local override, while existing overrides

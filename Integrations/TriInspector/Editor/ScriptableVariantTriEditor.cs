@@ -11,7 +11,14 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
     [CustomEditor(typeof(ScriptableVariant), editorForChildClasses: true)]
     internal sealed class ScriptableVariantTriEditor : TriEditor
     {
+        private static readonly GUIContent ParentLabel = new GUIContent("Parent");
+        private static readonly GUIContent ActionsLabel = new GUIContent(
+            "Actions",
+            "Scriptable Variant actions");
+
+        private readonly GUIContent _chainLabel = new GUIContent();
         private ScriptableVariant _variant;
+        private string _parentError;
 
         protected override void OnEnable()
         {
@@ -31,6 +38,78 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             base.OnDisable();
         }
 
+        protected override void OnHeaderGUI()
+        {
+            base.OnHeaderGUI();
+
+            if (_variant == null || targets.Length != 1)
+            {
+                return;
+            }
+
+            GUILayout.Space(2f);
+
+            EditorGUI.BeginChangeCheck();
+            var newParent = EditorGUILayout.ObjectField(
+                ParentLabel,
+                _variant.Parent,
+                _variant.GetType(),
+                false) as ScriptableVariant;
+            if (EditorGUI.EndChangeCheck())
+            {
+                if (!ScriptableVariantAssetUtility.SetParent(_variant, newParent, out var error))
+                {
+                    _parentError = error;
+                }
+                else
+                {
+                    _parentError = null;
+                    serializedObject.Update();
+                }
+
+                Repaint();
+            }
+
+            _chainLabel.text = ScriptableVariantAssetUtility.GetChainLabel(_variant);
+            _chainLabel.tooltip = _chainLabel.text;
+            var statusRowHeight = EditorGUIUtility.singleLineHeight + 2f;
+            using (new EditorGUI.DisabledScope(!_variant.HasParent))
+            using (new EditorGUILayout.HorizontalScope(GUILayout.Height(statusRowHeight)))
+            {
+                GUILayout.Label(
+                    _chainLabel,
+                    EditorStyles.miniLabel,
+                    GUILayout.MinWidth(0f),
+                    GUILayout.ExpandWidth(true),
+                    GUILayout.Height(statusRowHeight));
+
+                if (EditorGUILayout.DropdownButton(
+                        ActionsLabel,
+                        FocusType.Passive,
+                        EditorStyles.popup,
+                        GUILayout.Width(86f),
+                        GUILayout.Height(statusRowHeight)))
+                {
+                    ShowActionsMenu(GUILayoutUtility.GetLastRect());
+                }
+            }
+
+            if (!string.IsNullOrEmpty(_parentError))
+            {
+                EditorGUILayout.HelpBox(_parentError, MessageType.Error);
+            }
+
+            var orphans = _variant.EditorGetOrphanOverrides();
+            if (orphans.Length > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    "Unknown override paths: " + string.Join(", ", orphans),
+                    MessageType.Warning);
+            }
+
+            GUILayout.Space(6f);
+        }
+
         public override VisualElement CreateInspectorGUI()
         {
             var root = new VisualElement();
@@ -46,133 +125,61 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 return root;
             }
 
-            root.Add(CreateHeader());
             root.Add(base.CreateInspectorGUI());
             return root;
         }
 
-        private VisualElement CreateHeader()
+        private void ShowActionsMenu(Rect buttonRect)
         {
-            var container = new VisualElement();
-            container.style.marginBottom = 6;
-            container.style.paddingLeft = 4;
-            container.style.paddingRight = 4;
-            container.style.paddingTop = 4;
-            container.style.paddingBottom = 4;
-            container.style.borderBottomWidth = 1;
-            container.style.borderTopWidth = 1;
-            container.style.borderLeftWidth = 1;
-            container.style.borderRightWidth = 1;
-
-            var parentField = new ObjectField("Parent")
-            {
-                objectType = _variant.GetType(),
-                allowSceneObjects = false,
-            };
-            parentField.SetValueWithoutNotify(_variant.Parent);
-            container.Add(parentField);
-
-            var statusRow = new Toolbar();
-            statusRow.style.marginTop = 2;
-
-            var chainLabel = new Label();
-            chainLabel.style.unityFontStyleAndWeight = FontStyle.Italic;
-            chainLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
-            chainLabel.style.flexGrow = 1;
-            chainLabel.style.flexShrink = 1;
-            chainLabel.style.paddingLeft = 4;
-            statusRow.Add(chainLabel);
-
-            var actionsMenu = new ToolbarMenu
-            {
-                text = "Actions",
-                tooltip = "Scriptable Variant actions",
-                variant = ToolbarMenu.Variant.Popup,
-            };
-            statusRow.Add(actionsMenu);
-            container.Add(statusRow);
-
-            var errorBox = new HelpBox(string.Empty, HelpBoxMessageType.Error);
-            errorBox.style.display = DisplayStyle.None;
-            container.Add(errorBox);
-
-            var orphanBox = new HelpBox(string.Empty, HelpBoxMessageType.Warning);
-            orphanBox.style.display = DisplayStyle.None;
-            container.Add(orphanBox);
-
-            actionsMenu.menu.AppendAction("Override All", _ =>
+            var menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Override All"), false, () =>
             {
                 ScriptableVariantAssetUtility.OverrideAll(_variant);
-                serializedObject.Update();
-            }, _ => _variant != null && _variant.HasParent
-                ? DropdownMenuAction.Status.Normal
-                : DropdownMenuAction.Status.Disabled);
-            actionsMenu.menu.AppendAction("Revert All", _ =>
-            {
-                ScriptableVariantAssetUtility.RevertAll(_variant);
-                serializedObject.Update();
-            }, _ => _variant != null && _variant.HasParent && _variant.OverridePaths.Count > 0
-                ? DropdownMenuAction.Status.Normal
-                : DropdownMenuAction.Status.Disabled);
-            actionsMenu.menu.AppendSeparator();
-            actionsMenu.menu.AppendAction("Flatten", _ =>
-            {
-                ScriptableVariantAssetUtility.Flatten(_variant);
-                parentField.SetValueWithoutNotify(null);
-                serializedObject.Update();
-            }, _ => _variant != null && _variant.HasParent
-                ? DropdownMenuAction.Status.Normal
-                : DropdownMenuAction.Status.Disabled);
-            actionsMenu.menu.AppendSeparator();
-            actionsMenu.menu.AppendAction("Remove Orphan Overrides", _ =>
-            {
-                ScriptableVariantAssetUtility.RemoveOrphanOverrides(_variant);
-                serializedObject.Update();
-            }, _ => _variant != null && _variant.EditorGetOrphanOverrides().Length > 0
-                ? DropdownMenuAction.Status.Normal
-                : DropdownMenuAction.Status.Disabled);
-
-            parentField.RegisterValueChangedCallback(evt =>
-            {
-                var newParent = evt.newValue as ScriptableVariant;
-                if (!ScriptableVariantAssetUtility.SetParent(_variant, newParent, out var error))
-                {
-                    parentField.SetValueWithoutNotify(_variant.Parent);
-                    errorBox.text = error;
-                    errorBox.style.display = DisplayStyle.Flex;
-                    return;
-                }
-
-                errorBox.style.display = DisplayStyle.None;
-                serializedObject.Update();
+                RefreshAfterHeaderAction();
             });
 
-            void RefreshHeader()
+            if (_variant.OverridePaths.Count > 0)
             {
-                if (_variant == null)
+                menu.AddItem(new GUIContent("Revert All"), false, () =>
                 {
-                    return;
-                }
-
-                if (parentField.value != _variant.Parent)
-                {
-                    parentField.SetValueWithoutNotify(_variant.Parent);
-                }
-
-                statusRow.SetEnabled(_variant.HasParent);
-                chainLabel.text = ScriptableVariantAssetUtility.GetChainLabel(_variant);
-
-                var orphans = _variant.EditorGetOrphanOverrides();
-                var hasOrphans = orphans.Length > 0;
-                orphanBox.text = hasOrphans
-                    ? "Unknown override paths: " + string.Join(", ", orphans)
-                    : string.Empty;
-                orphanBox.style.display = hasOrphans ? DisplayStyle.Flex : DisplayStyle.None;
+                    ScriptableVariantAssetUtility.RevertAll(_variant);
+                    RefreshAfterHeaderAction();
+                });
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent("Revert All"));
             }
 
-            container.schedule.Execute(RefreshHeader).Every(100);
-            RefreshHeader();
-            return container;
+            menu.AddSeparator(string.Empty);
+            menu.AddItem(new GUIContent("Flatten"), false, () =>
+            {
+                ScriptableVariantAssetUtility.Flatten(_variant);
+                RefreshAfterHeaderAction();
+            });
+
+            menu.AddSeparator(string.Empty);
+            if (_variant.EditorGetOrphanOverrides().Length > 0)
+            {
+                menu.AddItem(new GUIContent("Remove Orphan Overrides"), false, () =>
+                {
+                    ScriptableVariantAssetUtility.RemoveOrphanOverrides(_variant);
+                    RefreshAfterHeaderAction();
+                });
+            }
+            else
+            {
+                menu.AddDisabledItem(new GUIContent("Remove Orphan Overrides"));
+            }
+
+            menu.DropDown(buttonRect);
+        }
+
+        private void RefreshAfterHeaderAction()
+        {
+            _parentError = null;
+            serializedObject.Update();
+            Repaint();
         }
 
         private void OnUndoRedo()
@@ -184,6 +191,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
             _variant.EditorNotifyValuesChanged();
             _variant.EnsureResolved();
+            _parentError = null;
             serializedObject.Update();
             Repaint();
         }

@@ -4,6 +4,7 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Moved the parent selector, inheritance chain, and actions into Unity's native Inspector header.
 - Assigning or changing **Parent** now keeps existing overrides and automatically overrides
   every serialized property whose current value differs from the new parent.
 - Replaced the header action-button row with a compact **Actions** menu and removed
