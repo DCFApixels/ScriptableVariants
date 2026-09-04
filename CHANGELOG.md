@@ -4,6 +4,8 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+## 0.1.1 - 2026-09-04
+
 - Moved the parent selector, inheritance chain, and actions into Unity's native Inspector header.
 - Assigning or changing **Parent** now keeps existing overrides and automatically overrides
   every serialized property whose current value differs from the new parent.
@@ -17,6 +19,9 @@ All notable changes to this package are documented in this file.
 - Prevented Unity `Header` and `Space` decorators, including those on `[VariantLocal]` fields,
   from being drawn twice when another attribute makes Tri Inspector use Unity's native property
   handler.
+- Refactored override mutations and serialized path resolution to remove duplicate work.
+- Fixed the **Actions** menu anchor in the Inspector header.
+- Packaged the weapon configuration demo as an importable Unity Package Manager sample.
 
 ## 0.1.0 - 2026-09-04
 

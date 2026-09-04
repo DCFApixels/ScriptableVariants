@@ -9,19 +9,21 @@ Unity `ScriptableObject` assets. Its Inspector integration is built on Tri Inspe
 - Tri Inspector 2 at commit `f3239650e307275edd06c25e7cda1fdc7207f5b5`.
 
 Unity Package Manager does not support a Git package declaring another Git package as a
-transitive dependency. Add Tri Inspector to the consuming project's `Packages/manifest.json`
-before adding Scriptable Variants:
+transitive dependency. Add both Git dependencies to the consuming project's
+`Packages/manifest.json`:
 
 ```json
 {
   "dependencies": {
-    "com.codewriter.triinspector": "https://github.com/codewriter-packages/Tri-Inspector.git#f3239650e307275edd06c25e7cda1fdc7207f5b5"
+    "com.codewriter.triinspector": "https://github.com/codewriter-packages/Tri-Inspector.git#f3239650e307275edd06c25e7cda1fdc7207f5b5",
+    "com.dcfapixels.scriptable-variants": "https://github.com/DCFApixels/ScriptableVariants.git#v0.1.1"
   }
 }
 ```
 
-Then add the private Scriptable Variants repository through **Package Manager → Add package
-from git URL**. Authentication must already be configured for the selected HTTPS or SSH URL.
+Alternatively, add Tri Inspector first and then use **Package Manager → Add package from git
+URL** with `https://github.com/DCFApixels/ScriptableVariants.git#v0.1.1`.
+Authentication must already be configured for the private repository's HTTPS or SSH URL.
 
 ## Quick start
 
@@ -106,8 +108,9 @@ same context menu as a fallback for custom Tri Inspector controls that consume t
 The integration targets the pinned Tri Inspector commit above so preview API changes cannot
 silently break its editor bindings.
 
-## Demo
+## Sample
 
-A ready-made three-level weapon configuration chain is included in `Demo/Assets`.
-See [`Demo/README.md`](Demo/README.md) for the inherited and overridden fields and a short
-Inspector walkthrough.
+A ready-made three-level weapon configuration chain is available from the package details under
+**Samples → Weapon Configuration Demo → Import**. See
+[`Samples~/Demo/README.md`](Samples~/Demo/README.md) for its inherited and overridden fields
+and a short Inspector walkthrough.
