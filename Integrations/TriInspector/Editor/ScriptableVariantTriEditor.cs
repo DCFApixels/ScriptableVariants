@@ -15,6 +15,10 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
         private static readonly GUIContent ActionsLabel = new GUIContent(
             "Actions",
             "Scriptable Variant actions");
+        private static readonly GUIContent OverrideAllLabel = new GUIContent("Override All");
+        private static readonly GUIContent RevertAllLabel = new GUIContent("Revert All");
+        private static readonly GUIContent FlattenLabel = new GUIContent("Flatten");
+        private static readonly GUIContent RemoveOrphansLabel = new GUIContent("Remove Orphan Overrides");
 
         private readonly GUIContent _chainLabel = new GUIContent();
         private ScriptableVariant _variant;
@@ -48,7 +52,14 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             }
 
             GUILayout.Space(2f);
+            DrawParentField();
+            DrawStatusRow();
+            DrawWarnings();
+            GUILayout.Space(6f);
+        }
 
+        private void DrawParentField()
+        {
             EditorGUI.BeginChangeCheck();
             var newParent = EditorGUILayout.ObjectField(
                 ParentLabel,
@@ -69,7 +80,10 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
                 Repaint();
             }
+        }
 
+        private void DrawStatusRow()
+        {
             _chainLabel.text = ScriptableVariantAssetUtility.GetChainLabel(_variant);
             _chainLabel.tooltip = _chainLabel.text;
             var statusRowHeight = EditorGUIUtility.singleLineHeight + 2f;
@@ -83,17 +97,24 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     GUILayout.ExpandWidth(true),
                     GUILayout.Height(statusRowHeight));
 
-                if (EditorGUILayout.DropdownButton(
+                var actionsRect = GUILayoutUtility.GetRect(
+                    ActionsLabel,
+                    EditorStyles.popup,
+                    GUILayout.Width(86f),
+                    GUILayout.Height(statusRowHeight));
+                if (EditorGUI.DropdownButton(
+                        actionsRect,
                         ActionsLabel,
                         FocusType.Passive,
-                        EditorStyles.popup,
-                        GUILayout.Width(86f),
-                        GUILayout.Height(statusRowHeight)))
+                        EditorStyles.popup))
                 {
-                    ShowActionsMenu(GUILayoutUtility.GetLastRect());
+                    ShowActionsMenu(actionsRect);
                 }
             }
+        }
 
+        private void DrawWarnings()
+        {
             if (!string.IsNullOrEmpty(_parentError))
             {
                 EditorGUILayout.HelpBox(_parentError, MessageType.Error);
@@ -106,73 +127,77 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     "Unknown override paths: " + string.Join(", ", orphans),
                     MessageType.Warning);
             }
-
-            GUILayout.Space(6f);
         }
 
         public override VisualElement CreateInspectorGUI()
         {
-            var root = new VisualElement();
-
-            if (targets.Length != 1)
+            if (targets.Length == 1)
             {
-                root.Add(new HelpBox(
-                    "Multi-object editing is disabled for Scriptable Variants because selected assets can have different inheritance sources.",
-                    HelpBoxMessageType.Info));
-                var disabledInspector = base.CreateInspectorGUI();
-                disabledInspector.SetEnabled(false);
-                root.Add(disabledInspector);
-                return root;
+                return base.CreateInspectorGUI();
             }
 
-            root.Add(base.CreateInspectorGUI());
+            var root = new VisualElement();
+            root.Add(new HelpBox(
+                "Multi-object editing is disabled for Scriptable Variants because selected assets can have different inheritance sources.",
+                HelpBoxMessageType.Info));
+            var disabledInspector = base.CreateInspectorGUI();
+            disabledInspector.SetEnabled(false);
+            root.Add(disabledInspector);
             return root;
         }
 
         private void ShowActionsMenu(Rect buttonRect)
         {
             var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("Override All"), false, () =>
-            {
-                ScriptableVariantAssetUtility.OverrideAll(_variant);
-                RefreshAfterHeaderAction();
-            });
+            menu.AddItem(OverrideAllLabel, false, OverrideAll);
 
             if (_variant.OverridePaths.Count > 0)
             {
-                menu.AddItem(new GUIContent("Revert All"), false, () =>
-                {
-                    ScriptableVariantAssetUtility.RevertAll(_variant);
-                    RefreshAfterHeaderAction();
-                });
+                menu.AddItem(RevertAllLabel, false, RevertAll);
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent("Revert All"));
+                menu.AddDisabledItem(RevertAllLabel);
             }
 
             menu.AddSeparator(string.Empty);
-            menu.AddItem(new GUIContent("Flatten"), false, () =>
-            {
-                ScriptableVariantAssetUtility.Flatten(_variant);
-                RefreshAfterHeaderAction();
-            });
+            menu.AddItem(FlattenLabel, false, Flatten);
 
             menu.AddSeparator(string.Empty);
             if (_variant.EditorGetOrphanOverrides().Length > 0)
             {
-                menu.AddItem(new GUIContent("Remove Orphan Overrides"), false, () =>
-                {
-                    ScriptableVariantAssetUtility.RemoveOrphanOverrides(_variant);
-                    RefreshAfterHeaderAction();
-                });
+                menu.AddItem(RemoveOrphansLabel, false, RemoveOrphans);
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent("Remove Orphan Overrides"));
+                menu.AddDisabledItem(RemoveOrphansLabel);
             }
 
             menu.DropDown(buttonRect);
+        }
+
+        private void OverrideAll()
+        {
+            ScriptableVariantAssetUtility.OverrideAll(_variant);
+            RefreshAfterHeaderAction();
+        }
+
+        private void RevertAll()
+        {
+            ScriptableVariantAssetUtility.RevertAll(_variant);
+            RefreshAfterHeaderAction();
+        }
+
+        private void Flatten()
+        {
+            ScriptableVariantAssetUtility.Flatten(_variant);
+            RefreshAfterHeaderAction();
+        }
+
+        private void RemoveOrphans()
+        {
+            ScriptableVariantAssetUtility.RemoveOrphanOverrides(_variant);
+            RefreshAfterHeaderAction();
         }
 
         private void RefreshAfterHeaderAction()

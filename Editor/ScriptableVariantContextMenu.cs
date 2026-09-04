@@ -11,6 +11,16 @@ namespace DCFApixels.ScriptableVariants.Editor
     [InitializeOnLoad]
     internal static class ScriptableVariantContextMenu
     {
+        private static readonly GUIContent OverridePropertyLabel = new GUIContent("Override Property");
+        private static readonly GUIContent ApplyToParentLabel = new GUIContent("Apply to Parent");
+        private static readonly GUIContent RevertLabel = new GUIContent("Revert");
+
+        private static readonly FieldInfo MenuItemsField = typeof(GenericMenu).GetField(
+            "m_MenuItems",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        private static readonly FieldInfo MenuItemSeparatorField = FindMenuItemSeparatorField();
+
         static ScriptableVariantContextMenu()
         {
             EditorApplication.contextualPropertyMenu -= PopulatePropertyMenu;
@@ -68,7 +78,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             if (variant.EditorGetOverridesAffectingSubtree(propertyPath).Length == 0)
             {
                 menu.AddItem(
-                    new GUIContent("Override Property"),
+                    OverridePropertyLabel,
                     false,
                     () => Execute(
                         () => ScriptableVariantAssetUtility.SetOverride(variant, propertyPath, true),
@@ -77,13 +87,13 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             menu.AddItem(
-                new GUIContent("Apply to Parent"),
+                ApplyToParentLabel,
                 false,
                 () => Execute(
                     () => ScriptableVariantAssetUtility.ApplyToParent(variant, propertyPath),
                     null));
             menu.AddItem(
-                new GUIContent("Revert"),
+                RevertLabel,
                 false,
                 () => Execute(
                     () => ScriptableVariantAssetUtility.Revert(variant, propertyPath),
@@ -98,20 +108,30 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         private static void RemoveTrailingSeparator(GenericMenu menu)
         {
-            var itemsField = typeof(GenericMenu).GetField(
-                "m_MenuItems",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            if (!(itemsField?.GetValue(menu) is IList items) || items.Count == 0)
+            // Unity inserts a separator before invoking contextualPropertyMenu callbacks.
+            // Remove it when this callback has no entries to contribute.
+            if (!(MenuItemsField?.GetValue(menu) is IList items) || items.Count == 0)
             {
                 return;
             }
 
             var lastItem = items[items.Count - 1];
-            var separatorField = lastItem.GetType().GetField("separator");
-            if (separatorField != null && (bool)separatorField.GetValue(lastItem))
+            if (MenuItemSeparatorField != null &&
+                MenuItemSeparatorField.GetValue(lastItem) is bool isSeparator &&
+                isSeparator)
             {
                 items.RemoveAt(items.Count - 1);
             }
+        }
+
+        private static FieldInfo FindMenuItemSeparatorField()
+        {
+            var itemTypes = MenuItemsField?.FieldType.GetGenericArguments();
+            return itemTypes != null && itemTypes.Length == 1
+                ? itemTypes[0].GetField(
+                    "separator",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                : null;
         }
 
         private static void Execute(Action action, Action afterChange)

@@ -15,6 +15,9 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 {
     public sealed class VariantPropertyDrawer : TriAttributeDrawer<VariantPropertyAttribute>
     {
+        private const string TriHeaderWrapperTypeName = "TriInspector.Drawers.HeaderDrawer+TriHeader";
+        private const string TriSpaceWrapperTypeName = "TriInspector.Drawers.SpaceDrawer+TriSpace";
+
         public override VisualElement CreateVisualElement(TriProperty property, VisualElement next)
         {
             if (!typeof(ScriptableVariant).IsAssignableFrom(property.PropertyTree.TargetObjectType) ||
@@ -127,8 +130,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
         private static bool IsTriUnityDecoratorWrapper(VisualElement element)
         {
             var typeName = element.GetType().FullName;
-            return typeName == "TriInspector.Drawers.HeaderDrawer+TriHeader" ||
-                   typeName == "TriInspector.Drawers.SpaceDrawer+TriSpace";
+            return typeName == TriHeaderWrapperTypeName || typeName == TriSpaceWrapperTypeName;
         }
 
         private static bool IsInsideAtomicProperty(TriProperty property)
@@ -154,6 +156,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             private static readonly Color ChildOverrideColor = new Color32(47, 145, 255, 150);
 
             private readonly TriProperty _property;
+            private readonly ScriptableVariant _variant;
+            private readonly string _propertyPath;
             private readonly VisualElement _next;
             private readonly VisualElement _overrideHitArea;
             private readonly VisualElement _overrideBar;
@@ -164,6 +168,10 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             public VariantOverrideVisualElement(TriProperty property, VisualElement next)
             {
                 _property = property;
+                _variant = property.PropertyTree.TargetsCount == 1
+                    ? property.PropertyTree.RootProperty.GetValue(0) as ScriptableVariant
+                    : null;
+                _propertyPath = property.PropertyPath;
                 _next = next;
 
                 style.flexDirection = FlexDirection.Row;
@@ -207,8 +215,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
             private void PopulateContextMenu(ContextualMenuPopulateEvent evt)
             {
-                var variant = GetVariant();
-                if (variant == null || !variant.HasParent)
+                if (_variant == null || !_variant.HasParent)
                 {
                     return;
                 }
@@ -216,8 +223,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 _property.PropertyTree.ApplyChanges();
                 ScriptableVariantContextMenu.Populate(
                     evt.menu,
-                    variant,
-                    _property.PropertyPath,
+                    _variant,
+                    _propertyPath,
                     RefreshAfterContextAction);
                 evt.StopPropagation();
             }
@@ -231,25 +238,23 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
             private void OnPropertyValueChanged(TriProperty _)
             {
-                var variant = GetVariant();
-                if (variant == null || _property.PropertyType == TriPropertyType.Generic)
+                if (_variant == null || _property.PropertyType == TriPropertyType.Generic)
                 {
                     return;
                 }
 
-                var path = _property.PropertyPath;
-                if (!variant.HasParent || variant.IsLocallyControlled(path))
+                if (!_variant.HasParent || _variant.IsLocallyControlled(_propertyPath))
                 {
-                    ScriptableVariantAssetUtility.NotifyValuesChanged(variant);
+                    ScriptableVariantAssetUtility.NotifyValuesChanged(_variant);
                     return;
                 }
 
-                if (ScriptableVariantAssetUtility.ValueMatchesParent(variant, path))
+                if (ScriptableVariantAssetUtility.ValueMatchesParent(_variant, _propertyPath))
                 {
                     return;
                 }
 
-                ScriptableVariantAssetUtility.SetOverride(variant, path, true);
+                ScriptableVariantAssetUtility.SetOverride(_variant, _propertyPath, true);
                 _property.PropertyTree.Update(true);
                 _property.RefreshValue();
                 Refresh();
@@ -257,22 +262,19 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
             private void Refresh()
             {
-                var variant = GetVariant();
-                if (variant == null || !variant.HasParent)
+                if (_variant == null || !_variant.HasParent)
                 {
                     _overrideHitArea.style.display = DisplayStyle.None;
                     SetOverrideTextBold(false);
-                    _next.SetEnabled(true);
                     return;
                 }
 
                 _overrideHitArea.style.display = DisplayStyle.Flex;
 
-                var path = _property.PropertyPath;
-                var exact = variant.IsOverridden(path);
-                var locallyControlled = variant.IsLocallyControlled(path);
+                var exact = _variant.IsOverridden(_propertyPath);
+                var locallyControlled = _variant.IsLocallyControlled(_propertyPath);
                 var controlledByAncestor = locallyControlled && !exact;
-                var hasChildren = variant.HasOverridesBelow(path);
+                var hasChildren = _variant.HasOverridesBelow(_propertyPath);
 
                 if (controlledByAncestor)
                 {
@@ -294,7 +296,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 }
                 else
                 {
-                    var source = variant.GetValueSource(path);
+                    var source = _variant.GetValueSource(_propertyPath);
                     _overrideBar.style.backgroundColor = Color.clear;
                     _overrideHitArea.tooltip = source != null
                         ? $"Inherited from {source.name}. Right-click to override."
@@ -303,7 +305,6 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
                 UpdateOverridePosition();
                 SetOverrideTextBold(locallyControlled);
-                _next.SetEnabled(true);
             }
 
             private void UpdateOverridePosition()
@@ -394,16 +395,6 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 }
 
                 return _next.Q<VisualElement>(className: BaseFieldClassName);
-            }
-
-            private ScriptableVariant GetVariant()
-            {
-                if (_property.PropertyTree.TargetsCount != 1)
-                {
-                    return null;
-                }
-
-                return _property.PropertyTree.RootProperty.GetValue(0) as ScriptableVariant;
             }
         }
     }

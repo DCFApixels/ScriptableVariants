@@ -95,27 +95,7 @@ namespace DCFApixels.ScriptableVariants
         public bool IsLocallyControlled(string propertyPath)
         {
             NormalizeOverridePaths();
-            if (string.IsNullOrEmpty(propertyPath))
-            {
-                return false;
-            }
-
-            var lookup = GetOverrideLookup();
-            if (lookup.Contains(propertyPath))
-            {
-                return true;
-            }
-
-            for (var separator = propertyPath.LastIndexOf('.'); separator > 0;
-                 separator = propertyPath.LastIndexOf('.', separator - 1))
-            {
-                if (lookup.Contains(propertyPath.Substring(0, separator)))
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return FindOverrideAtOrAbove(propertyPath) != null;
         }
 
         /// <summary>Returns true when at least one child path is overridden locally.</summary>
@@ -277,40 +257,33 @@ namespace DCFApixels.ScriptableVariants
 
             EnsureResolved();
             NormalizeOverridePaths();
-
-            var prefix = propertyPath + ".";
-            for (var i = _variantOverrides.Count - 1; i >= 0; i--)
-            {
-                var existing = _variantOverrides[i];
-                if (string.Equals(existing, propertyPath, StringComparison.Ordinal) ||
-                    existing.StartsWith(prefix, StringComparison.Ordinal))
-                {
-                    _variantOverrides.RemoveAt(i);
-                }
-            }
-
             if (enabled)
             {
-                var controlledByAncestor = false;
-                for (var separator = propertyPath.LastIndexOf('.'); separator > 0;
-                     separator = propertyPath.LastIndexOf('.', separator - 1))
-                {
-                    if (GetOverrideLookup().Contains(propertyPath.Substring(0, separator)))
-                    {
-                        controlledByAncestor = true;
-                        break;
-                    }
-                }
-
-                if (!controlledByAncestor)
-                {
-                    _variantOverrides.Add(propertyPath);
-                }
+                AddOverridePath(propertyPath);
+            }
+            else
+            {
+                RemoveOverridesAtOrBelow(propertyPath);
             }
 
-            SortAndDeduplicateOverrides();
-            InvalidateResolvedData();
+            ResolveOverrideChanges();
+        }
+
+        internal void EditorRemoveOverrides(IReadOnlyList<string> propertyPaths)
+        {
+            if (propertyPaths == null || propertyPaths.Count == 0 || _variantParent == null)
+            {
+                return;
+            }
+
             EnsureResolved();
+            NormalizeOverridePaths();
+            for (var i = 0; i < propertyPaths.Count; i++)
+            {
+                RemoveOverridesAtOrBelow(propertyPaths[i]);
+            }
+
+            ResolveOverrideChanges();
         }
 
         internal void EditorClearOverrides()
@@ -345,9 +318,7 @@ namespace DCFApixels.ScriptableVariants
                 }
             }
 
-            SortAndDeduplicateOverrides();
-            InvalidateResolvedData();
-            EnsureResolved();
+            ResolveOverrideChanges();
         }
 
         internal void EditorRemoveOrphanOverrides()
@@ -361,9 +332,7 @@ namespace DCFApixels.ScriptableVariants
                 }
             }
 
-            SortAndDeduplicateOverrides();
-            InvalidateResolvedData();
-            EnsureResolved();
+            ResolveOverrideChanges();
         }
 
         internal string[] EditorGetOrphanOverrides()
@@ -389,20 +358,10 @@ namespace DCFApixels.ScriptableVariants
                 return Array.Empty<string>();
             }
 
-            var lookup = GetOverrideLookup();
-            if (lookup.Contains(propertyPath))
+            var controllingOverride = FindOverrideAtOrAbove(propertyPath);
+            if (controllingOverride != null)
             {
-                return new[] {propertyPath};
-            }
-
-            for (var separator = propertyPath.LastIndexOf('.'); separator > 0;
-                 separator = propertyPath.LastIndexOf('.', separator - 1))
-            {
-                var ancestorPath = propertyPath.Substring(0, separator);
-                if (lookup.Contains(ancestorPath))
-                {
-                    return new[] {ancestorPath};
-                }
+                return new[] {controllingOverride};
             }
 
             var prefix = propertyPath + ".";
@@ -547,26 +506,69 @@ namespace DCFApixels.ScriptableVariants
                 return;
             }
 
-            for (var i = 0; i < _variantOverrides.Count; i++)
+            var controllingOverride = FindOverrideAtOrAbove(propertyPath);
+            var controlledByAncestor = controllingOverride != null &&
+                                       !string.Equals(controllingOverride, propertyPath, StringComparison.Ordinal);
+            RemoveOverridesAtOrBelow(propertyPath);
+
+            if (!controlledByAncestor)
             {
-                var existing = _variantOverrides[i];
-                if (string.Equals(existing, propertyPath, StringComparison.Ordinal) ||
-                    propertyPath.StartsWith(existing + ".", StringComparison.Ordinal))
+                _variantOverrides.Add(propertyPath);
+            }
+        }
+
+        private string FindOverrideAtOrAbove(string propertyPath)
+        {
+            if (string.IsNullOrEmpty(propertyPath))
+            {
+                return null;
+            }
+
+            var lookup = GetOverrideLookup();
+            if (lookup.Contains(propertyPath))
+            {
+                return propertyPath;
+            }
+
+            for (var separator = propertyPath.LastIndexOf('.'); separator > 0;
+                 separator = propertyPath.LastIndexOf('.', separator - 1))
+            {
+                var ancestorPath = propertyPath.Substring(0, separator);
+                if (lookup.Contains(ancestorPath))
                 {
-                    return;
+                    return ancestorPath;
                 }
+            }
+
+            return null;
+        }
+
+        private void RemoveOverridesAtOrBelow(string propertyPath)
+        {
+            if (string.IsNullOrEmpty(propertyPath))
+            {
+                return;
             }
 
             var prefix = propertyPath + ".";
             for (var i = _variantOverrides.Count - 1; i >= 0; i--)
             {
-                if (_variantOverrides[i].StartsWith(prefix, StringComparison.Ordinal))
+                var existing = _variantOverrides[i];
+                if (string.Equals(existing, propertyPath, StringComparison.Ordinal) ||
+                    existing.StartsWith(prefix, StringComparison.Ordinal))
                 {
                     _variantOverrides.RemoveAt(i);
                 }
             }
 
-            _variantOverrides.Add(propertyPath);
+            _overrideLookup = null;
+        }
+
+        private void ResolveOverrideChanges()
+        {
+            SortAndDeduplicateOverrides();
+            InvalidateResolvedData();
+            EnsureResolved();
         }
 
         private HashSet<string> GetOverrideLookup()

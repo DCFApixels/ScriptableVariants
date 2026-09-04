@@ -65,7 +65,7 @@ namespace DCFApixels.ScriptableVariants
 
         internal static bool IsKnownPath(Type rootType, string propertyPath)
         {
-            return TryResolvePath(rootType, propertyPath, false, out _);
+            return TryGetFieldPath(rootType, propertyPath, false, out _);
         }
 
         internal static bool IsAtomicOverridePath(Type rootType, string propertyPath)
@@ -82,7 +82,20 @@ namespace DCFApixels.ScriptableVariants
 
         internal static bool TryRemapFormerPath(Type rootType, string oldPath, out string remappedPath)
         {
-            return TryResolvePath(rootType, oldPath, true, out remappedPath);
+            remappedPath = oldPath;
+            if (!TryGetFieldPath(rootType, oldPath, true, out var fields))
+            {
+                return false;
+            }
+
+            var segments = new string[fields.Length];
+            for (var i = 0; i < fields.Length; i++)
+            {
+                segments[i] = fields[i].Name;
+            }
+
+            remappedPath = string.Join(".", segments);
+            return true;
         }
 
         internal static bool CopyPathValue(
@@ -459,50 +472,16 @@ namespace DCFApixels.ScriptableVariants
             return false;
         }
 
-        private static bool TryResolvePath(
-            Type rootType,
-            string sourcePath,
-            bool allowFormerNames,
-            out string resolvedPath)
+        private static bool TryGetFieldPath(Type rootType, string propertyPath, out FieldInfo[] fields)
         {
-            resolvedPath = sourcePath;
-            if (string.IsNullOrEmpty(sourcePath) || sourcePath.Contains("Array.data["))
-            {
-                return false;
-            }
-
-            var segments = sourcePath.Split('.');
-            var resolvedSegments = new string[segments.Length];
-            var currentType = rootType;
-
-            for (var i = 0; i < segments.Length; i++)
-            {
-                var fields = i == 0 ? GetRootFields(currentType) : GetSerializableFields(currentType);
-                var field = FindField(fields, segments[i], allowFormerNames);
-                if (field == null || field.IsDefined(typeof(VariantLocalAttribute), true))
-                {
-                    return false;
-                }
-
-                resolvedSegments[i] = field.Name;
-                if (i == segments.Length - 1)
-                {
-                    continue;
-                }
-
-                if (field.IsDefined(typeof(SerializeReference), true) || !IsInlineComposite(field.FieldType))
-                {
-                    return false;
-                }
-
-                currentType = field.FieldType;
-            }
-
-            resolvedPath = string.Join(".", resolvedSegments);
-            return true;
+            return TryGetFieldPath(rootType, propertyPath, false, out fields);
         }
 
-        private static bool TryGetFieldPath(Type rootType, string propertyPath, out FieldInfo[] fields)
+        private static bool TryGetFieldPath(
+            Type rootType,
+            string propertyPath,
+            bool allowFormerNames,
+            out FieldInfo[] fields)
         {
             fields = null;
             if (string.IsNullOrEmpty(propertyPath) || propertyPath.Contains("Array.data["))
@@ -517,7 +496,7 @@ namespace DCFApixels.ScriptableVariants
             for (var i = 0; i < segments.Length; i++)
             {
                 var candidates = i == 0 ? GetRootFields(currentType) : GetSerializableFields(currentType);
-                var field = FindField(candidates, segments[i], false);
+                var field = FindField(candidates, segments[i], allowFormerNames);
                 if (field == null || field.IsDefined(typeof(VariantLocalAttribute), true))
                 {
                     return false;

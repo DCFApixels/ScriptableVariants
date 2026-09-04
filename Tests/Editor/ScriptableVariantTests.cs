@@ -125,6 +125,24 @@ namespace DCFApixels.ScriptableVariants.Tests
         }
 
         [Test]
+        public void EnablingExistingOverrideKeepsItActive()
+        {
+            var parent = CreateVariant();
+            parent.SetNumber(12);
+
+            var child = CreateVariant();
+            child.EditorSetParent(parent);
+            child.EditorSetOverride("_number", true);
+            child.SetNumber(37);
+
+            child.EditorSetOverride("_number", true);
+            parent.SetNumber(99);
+
+            Assert.That(child.IsOverridden("_number"), Is.True);
+            Assert.That(child.Number, Is.EqualTo(37));
+        }
+
+        [Test]
         public void NestedLeafCanOverrideIndependently()
         {
             var parent = CreateVariant();

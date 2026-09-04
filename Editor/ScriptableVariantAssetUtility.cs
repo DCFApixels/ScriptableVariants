@@ -62,11 +62,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             Undo.RecordObject(variant, "Revert Variant Property");
-            for (var i = 0; i < overridePaths.Length; i++)
-            {
-                variant.EditorSetOverride(overridePaths[i], false);
-            }
-
+            variant.EditorRemoveOverrides(overridePaths);
             MarkChanged(variant);
         }
 
@@ -122,11 +118,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             parent.EditorNotifyValuesChanged();
             MarkChanged(parent);
 
-            for (var i = 0; i < copiedPaths.Count; i++)
-            {
-                variant.EditorSetOverride(copiedPaths[i], false);
-            }
-
+            variant.EditorRemoveOverrides(copiedPaths);
             MarkChanged(variant);
             return true;
         }
@@ -187,8 +179,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             variant.EditorNotifyValuesChanged();
-            variant.EnsureResolved();
-            EditorUtility.SetDirty(variant);
+            MarkChanged(variant);
         }
 
         internal static bool ValueMatchesParent(ScriptableVariant variant, string propertyPath)
