@@ -1,0 +1,27 @@
+{
+    "name": "DCFApixels.ScriptableVariants.TriInspector.Editor",
+    "rootNamespace": "DCFApixels.ScriptableVariants.TriInspector.Editor",
+    "references": [
+        "DCFApixels.ScriptableVariants.Runtime",
+        "DCFApixels.ScriptableVariants.Editor",
+        "TriInspector",
+        "TriInspector.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.codewriter.triinspector",
+            "expression": "2.0.0",
+            "define": "DCFA_SCRIPTABLE_VARIANTS_TRI_2"
+        }
+    ],
+    "noEngineReferences": false
+}

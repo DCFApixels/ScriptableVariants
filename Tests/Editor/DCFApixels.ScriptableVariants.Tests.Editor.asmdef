@@ -1,0 +1,24 @@
+{
+    "name": "DCFApixels.ScriptableVariants.Tests.Editor",
+    "rootNamespace": "DCFApixels.ScriptableVariants.Tests",
+    "references": [
+        "DCFApixels.ScriptableVariants.Runtime",
+        "DCFApixels.ScriptableVariants.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

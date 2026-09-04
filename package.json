@@ -1,0 +1,16 @@
+{
+  "name": "com.dcfapixels.scriptable-variants",
+  "version": "0.1.0",
+  "displayName": "Scriptable Variants",
+  "description": "Single-parent value inheritance and per-property overrides for Unity ScriptableObject assets, with Tri Inspector 2 integration.",
+  "unity": "6000.0",
+  "author": {
+    "name": "DCFApixels"
+  },
+  "keywords": [
+    "scriptableobject",
+    "inheritance",
+    "variants",
+    "tri-inspector"
+  ]
+}

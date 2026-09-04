@@ -1,0 +1,104 @@
+# Scriptable Variants
+
+`ScriptableVariants` adds single-parent value inheritance and per-property overrides to
+Unity `ScriptableObject` assets. Its Inspector integration is built on Tri Inspector 2.
+
+## Requirements and installation
+
+- Unity 6000.0 or newer.
+- Tri Inspector 2 at commit `f3239650e307275edd06c25e7cda1fdc7207f5b5`.
+
+Unity Package Manager does not support a Git package declaring another Git package as a
+transitive dependency. Add Tri Inspector to the consuming project's `Packages/manifest.json`
+before adding Scriptable Variants:
+
+```json
+{
+  "dependencies": {
+    "com.codewriter.triinspector": "https://github.com/codewriter-packages/Tri-Inspector.git#f3239650e307275edd06c25e7cda1fdc7207f5b5"
+  }
+}
+```
+
+Then add the private Scriptable Variants repository through **Package Manager → Add package
+from git URL**. Authentication must already be configured for the selected HTTPS or SSH URL.
+
+## Quick start
+
+```csharp
+using DCFApixels.ScriptableVariants;
+using TriInspector;
+using UnityEngine;
+
+[CreateAssetMenu(menuName = "Game/Weapon Config")]
+public sealed class WeaponConfig : ScriptableVariant<WeaponConfig>
+{
+    [SerializeField, Min(0), Slider(0, 100)]
+    private float _damage = 10;
+
+    [SerializeField]
+    private WeaponVisuals _visuals;
+
+    public float Damage
+    {
+        get
+        {
+            EnsureResolved();
+            return _damage;
+        }
+    }
+}
+```
+
+Create a root asset normally, then use **Create Child** in its Inspector. A child reads all
+values from its parent until the circle next to a property is clicked:
+
+- `○` inherited;
+- `●` overridden on this asset;
+- `◐` contains overridden child fields;
+- `◆` controlled by an override on an owning object.
+
+Turning an override on preserves the currently inherited value. Reverting it discards the
+local value and restores the value from the nearest ancestor. **Flatten** removes the parent
+while preserving all currently effective values.
+
+## Runtime contract
+
+Inherited values are materialized into the child object when it is enabled and whenever
+`EnsureResolved()` is called. Reflection and deep copies occur only while resolving; normal
+field/property reads do not walk the parent chain.
+
+Prefer private serialized fields and read-only public properties that call `EnsureResolved()`.
+If code changes serialized values at runtime, call `InvalidateResolvedData()` afterwards.
+
+If a derived class implements `OnEnable`, `OnDisable`, or `OnValidate`, it must override the
+protected base method and call `base` so automatic invalidation remains active.
+
+## Override boundaries
+
+- Inline `[Serializable]` classes and structs support leaf-field overrides.
+- Arrays and `List<T>` are overridden as a whole collection.
+- `[SerializeReference]` values are overridden as a whole managed reference.
+- Unity object references and built-in Unity values are overridden as a whole value.
+- Add `[VariantLocal]` to a serialized field that must always remain local.
+- Parent and child assets must have exactly the same concrete type.
+- A cyclic parent chain is rejected by the Inspector and guarded against at runtime.
+
+Override identifiers use Unity property paths. Fields renamed with `[FormerlySerializedAs]`
+are remapped automatically. Unknown paths are reported in the Inspector and can be removed
+with **Remove Orphans**.
+
+## Tri Inspector
+
+The integration wraps Tri Inspector's existing visual-element drawer chain. Tri attributes
+such as groups, validation, conditionals, custom drawers, and value-change callbacks remain
+responsible for rendering the actual value field.
+
+The integration targets the pinned Tri Inspector commit above so preview API changes cannot
+silently break its editor bindings.
+
+## Demo
+
+A ready-made three-level weapon configuration chain is included in `Demo/Assets`.
+See [`Demo/README.md`](Demo/README.md) for the inherited and overridden fields and a short
+Inspector walkthrough.
