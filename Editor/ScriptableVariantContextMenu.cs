@@ -38,7 +38,7 @@ namespace DCFApixels.ScriptableVariants.Editor
                 return;
             }
 
-            if (variant.EditorGetOverridesAffectingSubtree(propertyPath).Length == 0)
+            if (ScriptableVariantAssetUtility.GetOverridesAffectingSubtree(variant, propertyPath).Length == 0)
             {
                 menu.AppendAction(
                     "Override Property",
@@ -75,7 +75,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             var propertyPath = property.propertyPath;
-            if (variant.EditorGetOverridesAffectingSubtree(propertyPath).Length == 0)
+            if (ScriptableVariantAssetUtility.GetOverridesAffectingSubtree(variant, propertyPath).Length == 0)
             {
                 menu.AddItem(
                     OverridePropertyLabel,
@@ -102,7 +102,8 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         private static bool CanHandle(ScriptableVariant variant, string propertyPath)
         {
-            return variant != null && variant.HasParent &&
+            return VariantEditingSession.IsWorkingCopy(variant) &&
+                   ScriptableVariantAssetUtility.HasParent(variant) &&
                    VariantSerialization.IsKnownPath(variant.GetType(), propertyPath);
         }
 

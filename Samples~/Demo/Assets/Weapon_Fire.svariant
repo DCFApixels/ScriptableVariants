@@ -1,0 +1,38 @@
+{
+  "formatVersion": 1,
+  "scriptGuid": "e5e188f9a6d94bfc88d6fd1aa16f99fa",
+  "typeName": "DCFApixels.ScriptableVariants.Demo.DemoWeaponConfig, DCFApixels.ScriptableVariants.Demo",
+  "parentGuid": "7d5a8c0f002a45c48aa807254462baf0",
+  "overridePaths": [
+    "_displayName",
+    "_effects",
+    "_visuals._projectileColor"
+  ],
+  "values": [
+    {
+      "path": "_designerNote",
+      "value": "Fire variant overrides color and the effects collection."
+    },
+    {
+      "path": "_displayName",
+      "value": "Incendiary Pulse Rifle"
+    },
+    {
+      "path": "_effects",
+      "value": [
+        "MuzzleFlash.Fire",
+        "Audio.PulseRifle",
+        "Status.Burning"
+      ]
+    },
+    {
+      "path": "_visuals._projectileColor",
+      "value": {
+        "r": 1.0,
+        "g": 0.25,
+        "b": 0.05,
+        "a": 1.0
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "name": "com.dcfapixels.scriptable-variants",
   "version": "0.1.2",
   "displayName": "Scriptable Variants",
-  "description": "Single-parent value inheritance and per-property overrides for Unity ScriptableObject assets, with Tri Inspector 2 integration.",
+  "description": "Editor-only .svariant inheritance with flat imported ScriptableObjects and Tri Inspector 2 integration.",
   "unity": "6000.0",
   "license": "MIT",
   "documentationUrl": "https://github.com/DCFApixels/ScriptableVariants#readme",
@@ -18,6 +18,9 @@
     "variants",
     "tri-inspector"
   ],
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  },
   "samples": [
     {
       "displayName": "Weapon Configuration Demo",

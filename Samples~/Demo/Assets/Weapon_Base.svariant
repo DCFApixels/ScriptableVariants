@@ -1,0 +1,48 @@
+{
+  "formatVersion": 1,
+  "scriptGuid": "e5e188f9a6d94bfc88d6fd1aa16f99fa",
+  "typeName": "DCFApixels.ScriptableVariants.Demo.DemoWeaponConfig, DCFApixels.ScriptableVariants.Demo",
+  "overridePaths": [],
+  "values": [
+    {
+      "path": "_cooldown",
+      "value": 0.45
+    },
+    {
+      "path": "_damage",
+      "value": 18.0
+    },
+    {
+      "path": "_designerNote",
+      "value": "Root defaults for the whole weapon family."
+    },
+    {
+      "path": "_displayName",
+      "value": "Pulse Rifle"
+    },
+    {
+      "path": "_effects",
+      "value": [
+        "MuzzleFlash.Blue",
+        "Audio.PulseRifle"
+      ]
+    },
+    {
+      "path": "_visuals",
+      "value": {
+        "_projectileColor": {
+          "r": 0.15,
+          "g": 0.65,
+          "b": 1.0,
+          "a": 1.0
+        },
+        "_projectileScale": 1.0,
+        "_muzzleOffset": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.75
+        }
+      }
+    }
+  ]
+}

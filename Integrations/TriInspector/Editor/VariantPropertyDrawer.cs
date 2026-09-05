@@ -208,19 +208,19 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 Add(_next);
 
                 _next.RegisterCallback<GeometryChangedEvent>(_ => UpdateOverridePosition());
-                _next.TrackPropertyValueChanged(_property, OnPropertyValueChanged);
                 this.PeriodicRun(Refresh);
                 Refresh();
             }
 
             private void PopulateContextMenu(ContextualMenuPopulateEvent evt)
             {
-                if (_variant == null || !_variant.HasParent)
+                if (_variant == null || !ScriptableVariantAssetUtility.HasParent(_variant))
                 {
                     return;
                 }
 
                 _property.PropertyTree.ApplyChanges();
+                VariantEditingSession.CommitValues(_variant);
                 ScriptableVariantContextMenu.Populate(
                     evt.menu,
                     _variant,
@@ -236,33 +236,9 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 Refresh();
             }
 
-            private void OnPropertyValueChanged(TriProperty _)
-            {
-                if (_variant == null || _property.PropertyType == TriPropertyType.Generic)
-                {
-                    return;
-                }
-
-                if (!_variant.HasParent || _variant.IsLocallyControlled(_propertyPath))
-                {
-                    ScriptableVariantAssetUtility.NotifyValuesChanged(_variant);
-                    return;
-                }
-
-                if (ScriptableVariantAssetUtility.ValueMatchesParent(_variant, _propertyPath))
-                {
-                    return;
-                }
-
-                ScriptableVariantAssetUtility.SetOverride(_variant, _propertyPath, true);
-                _property.PropertyTree.Update(true);
-                _property.RefreshValue();
-                Refresh();
-            }
-
             private void Refresh()
             {
-                if (_variant == null || !_variant.HasParent)
+                if (_variant == null || !ScriptableVariantAssetUtility.HasParent(_variant))
                 {
                     _overrideHitArea.style.display = DisplayStyle.None;
                     SetOverrideTextBold(false);
@@ -271,10 +247,11 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
                 _overrideHitArea.style.display = DisplayStyle.Flex;
 
-                var exact = _variant.IsOverridden(_propertyPath);
-                var locallyControlled = _variant.IsLocallyControlled(_propertyPath);
+                var exact = ScriptableVariantAssetUtility.IsOverridden(_variant, _propertyPath);
+                var locallyControlled =
+                    ScriptableVariantAssetUtility.IsLocallyControlled(_variant, _propertyPath);
                 var controlledByAncestor = locallyControlled && !exact;
-                var hasChildren = _variant.HasOverridesBelow(_propertyPath);
+                var hasChildren = ScriptableVariantAssetUtility.HasOverridesBelow(_variant, _propertyPath);
 
                 if (controlledByAncestor)
                 {
@@ -296,7 +273,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 }
                 else
                 {
-                    var source = _variant.GetValueSource(_propertyPath);
+                    var source = ScriptableVariantAssetUtility.GetValueSource(_variant, _propertyPath);
                     _overrideBar.style.backgroundColor = Color.clear;
                     _overrideHitArea.tooltip = source != null
                         ? $"Inherited from {source.name}. Right-click to override."

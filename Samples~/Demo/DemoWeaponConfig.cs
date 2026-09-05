@@ -21,9 +21,6 @@ namespace DCFApixels.ScriptableVariants.Demo
         public Vector3 MuzzleOffset => _muzzleOffset;
     }
 
-    [CreateAssetMenu(
-        fileName = "Weapon Variant",
-        menuName = "Scriptable Variants Demo/Weapon Config")]
     public sealed class DemoWeaponConfig : ScriptableVariant
     {
         [Header("Identity")]
@@ -48,50 +45,11 @@ namespace DCFApixels.ScriptableVariants.Demo
         [SerializeField, VariantLocal, TextArea]
         private string _designerNote;
 
-        public string DisplayName
-        {
-            get
-            {
-                EnsureResolved();
-                return _displayName;
-            }
-        }
-
-        public float Damage
-        {
-            get
-            {
-                EnsureResolved();
-                return _damage;
-            }
-        }
-
-        public float Cooldown
-        {
-            get
-            {
-                EnsureResolved();
-                return _cooldown;
-            }
-        }
-
-        public DemoWeaponVisuals Visuals
-        {
-            get
-            {
-                EnsureResolved();
-                return _visuals;
-            }
-        }
-
-        public IReadOnlyList<string> Effects
-        {
-            get
-            {
-                EnsureResolved();
-                return _effects;
-            }
-        }
+        public string DisplayName => _displayName;
+        public float Damage => _damage;
+        public float Cooldown => _cooldown;
+        public DemoWeaponVisuals Visuals => _visuals;
+        public IReadOnlyList<string> Effects => _effects;
 
         public string DesignerNote => _designerNote;
     }

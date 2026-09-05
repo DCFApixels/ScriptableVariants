@@ -1,439 +1,151 @@
-using System;
-using System.Collections.Generic;
+using System.Linq;
 using DCFApixels.ScriptableVariants.Editor;
 using NUnit.Framework;
-using UnityEngine;
+using UnityEditor;
 
 namespace DCFApixels.ScriptableVariants.Tests
 {
     public sealed class ScriptableVariantTests
     {
-        private readonly List<ScriptableObject> _created = new List<ScriptableObject>();
+        private const string TestFolder = "Assets/__ScriptableVariantTests";
+
+        [SetUp]
+        public void SetUp()
+        {
+            if (!AssetDatabase.IsValidFolder(TestFolder))
+            {
+                AssetDatabase.CreateFolder("Assets", "__ScriptableVariantTests");
+            }
+        }
 
         [TearDown]
         public void TearDown()
         {
-            for (var i = 0; i < _created.Count; i++)
-            {
-                UnityEngine.Object.DestroyImmediate(_created[i]);
-            }
-
-            _created.Clear();
+            AssetDatabase.DeleteAsset(TestFolder);
         }
 
         [Test]
-        public void ChildInheritsScalarFromParent()
+        public void CustomSourceImportsConcreteScriptableObject()
         {
-            var parent = CreateVariant();
-            parent.SetNumber(12);
+            var asset = CreateRoot("Imported");
 
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-
-            Assert.That(child.Number, Is.EqualTo(12));
-            Assert.That(child.GetValueSource("_number"), Is.SameAs(parent));
+            Assert.That(asset, Is.Not.Null);
+            Assert.That(asset, Is.TypeOf<ScriptableVariantTestAsset>());
+            Assert.That(AssetDatabase.GetAssetPath(asset), Does.EndWith(".svariant"));
         }
 
         [Test]
-        public void AssigningParentKeepsDifferentValuesAsOverrides()
+        public void PublicFieldEditPersistsThroughReimport()
         {
-            var parent = CreateVariant();
-            parent.SetNumber(12);
+            var asset = CreateRoot("PublicField");
+            asset.PublicNumber = 37;
+            ScriptableVariantAssetUtility.NotifyValuesChanged(asset, nameof(asset.PublicNumber));
+
+            asset = Reimport(asset);
+
+            Assert.That(asset.PublicNumber, Is.EqualTo(37));
+        }
+
+        [Test]
+        public void AssigningParentMarksEveryDifferentPropertyAsOverride()
+        {
+            var parent = CreateRoot("Parent");
+            parent.PublicNumber = 12;
             parent.SetNested(5, "parent");
             parent.SetValues(1, 2, 3);
-            parent.SetLocalNote("parent note");
+            parent = Persist(parent);
 
-            var child = CreateVariant();
-            child.SetNumber(37);
+            var child = CreateRoot("Child");
+            child.PublicNumber = 37;
             child.SetNested(5, "child");
             child.SetValues(7, 8);
-            child.SetLocalNote("child note");
+            child.SetLocalNote("child local");
+            child = Persist(child);
 
             Assert.That(ScriptableVariantAssetUtility.SetParent(child, parent, out var error), Is.True);
             Assert.That(error, Is.Null);
-            Assert.That(child.Number, Is.EqualTo(37));
+            child = Reimport(child);
+
+            Assert.That(child.PublicNumber, Is.EqualTo(37));
             Assert.That(child.NestedAmount, Is.EqualTo(5));
             Assert.That(child.NestedLabel, Is.EqualTo("child"));
             Assert.That(child.Values, Is.EqualTo(new[] {7, 8}));
-            Assert.That(child.LocalNote, Is.EqualTo("child note"));
-            Assert.That(child.IsOverridden("_number"), Is.True);
-            Assert.That(child.IsOverridden("_nested._amount"), Is.False);
-            Assert.That(child.IsOverridden("_nested._label"), Is.True);
-            Assert.That(child.IsOverridden("_values"), Is.True);
-            Assert.That(child.IsOverridden("_localNote"), Is.False);
-
-            parent.SetNumber(99);
-            parent.SetNested(8, "updated");
-            parent.SetValues(9);
-            parent.SetLocalNote("updated parent note");
-
-            Assert.That(child.Number, Is.EqualTo(37));
-            Assert.That(child.NestedAmount, Is.EqualTo(8));
-            Assert.That(child.NestedLabel, Is.EqualTo("child"));
-            Assert.That(child.Values, Is.EqualTo(new[] {7, 8}));
-            Assert.That(child.LocalNote, Is.EqualTo("child note"));
+            Assert.That(child.LocalNote, Is.EqualTo("child local"));
+            Assert.That(ScriptableVariantAssetUtility.IsOverridden(child, nameof(child.PublicNumber)), Is.True);
+            Assert.That(ScriptableVariantAssetUtility.IsOverridden(child, "_nested._amount"), Is.False);
+            Assert.That(ScriptableVariantAssetUtility.IsOverridden(child, "_nested._label"), Is.True);
+            Assert.That(ScriptableVariantAssetUtility.IsOverridden(child, "_values"), Is.True);
+            Assert.That(ScriptableVariantAssetUtility.IsOverridden(child, "_localNote"), Is.False);
         }
 
         [Test]
-        public void ChangingParentKeepsExistingOverridesAndAddsNewDifferences()
+        public void ChildSourceContainsOnlyOverridesAndLocalValues()
         {
-            var firstParent = CreateVariant();
-            firstParent.SetNumber(10);
-            firstParent.SetNested(1, "first");
-
-            var secondParent = CreateVariant();
-            secondParent.SetNumber(20);
-            secondParent.SetNested(1, "local");
-
-            var child = CreateVariant();
-            child.EditorSetParent(firstParent);
-            child.EditorSetOverride("_nested._label", true);
-            child.SetNested(1, "local");
-
-            Assert.That(ScriptableVariantAssetUtility.SetParent(child, secondParent, out var error), Is.True);
-            Assert.That(error, Is.Null);
-            Assert.That(child.Number, Is.EqualTo(10));
-            Assert.That(child.NestedAmount, Is.EqualTo(1));
-            Assert.That(child.NestedLabel, Is.EqualTo("local"));
-            Assert.That(child.IsOverridden("_number"), Is.True);
-            Assert.That(child.IsOverridden("_nested._amount"), Is.False);
-            Assert.That(child.IsOverridden("_nested._label"), Is.True);
-
-            secondParent.SetNumber(99);
-            secondParent.SetNested(2, "updated");
-
-            Assert.That(child.Number, Is.EqualTo(10));
-            Assert.That(child.NestedAmount, Is.EqualTo(2));
-            Assert.That(child.NestedLabel, Is.EqualTo("local"));
-        }
-
-        [Test]
-        public void LocalOverrideSurvivesParentChange()
-        {
-            var parent = CreateVariant();
-            parent.SetNumber(12);
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_number", true);
-            child.SetNumber(37);
-
-            parent.SetNumber(99);
-
-            Assert.That(child.Number, Is.EqualTo(37));
-            Assert.That(child.GetValueSource("_number"), Is.SameAs(child));
-        }
-
-        [Test]
-        public void EnablingExistingOverrideKeepsItActive()
-        {
-            var parent = CreateVariant();
-            parent.SetNumber(12);
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_number", true);
-            child.SetNumber(37);
-
-            child.EditorSetOverride("_number", true);
-            parent.SetNumber(99);
-
-            Assert.That(child.IsOverridden("_number"), Is.True);
-            Assert.That(child.Number, Is.EqualTo(37));
-        }
-
-        [Test]
-        public void NestedLeafCanOverrideIndependently()
-        {
-            var parent = CreateVariant();
-            parent.SetNested(5, "parent");
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_nested._amount", true);
-            child.SetNestedAmount(42);
-
-            parent.SetNested(8, "updated");
-
-            Assert.That(child.NestedAmount, Is.EqualTo(42));
-            Assert.That(child.NestedLabel, Is.EqualTo("updated"));
-        }
-
-        [Test]
-        public void CollectionIsOverriddenAsOneValue()
-        {
-            var parent = CreateVariant();
-            parent.SetValues(1, 2, 3);
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            Assert.That(child.Values, Is.EqualTo(new[] {1, 2, 3}));
-
-            child.EditorSetOverride("_values", true);
-            child.SetValues(7, 8);
-            parent.SetValues(9);
-
-            Assert.That(child.Values, Is.EqualTo(new[] {7, 8}));
-        }
-
-        [Test]
-        public void RevertingSubtreeRestoresInheritedValue()
-        {
-            var parent = CreateVariant();
+            var parent = CreateRoot("CompactParent");
+            var child = CreateRoot("CompactChild");
+            parent.PublicNumber = 4;
+            child.PublicNumber = 4;
             parent.SetNested(3, "parent");
+            child.SetNested(3, "parent");
+            parent.SetValues(1, 2);
+            child.SetValues(1, 2);
+            child.SetLocalNote("kept locally");
+            parent = Persist(parent);
+            child = Persist(child);
 
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_nested._amount", true);
-            child.SetNestedAmount(14);
+            Assert.That(ScriptableVariantAssetUtility.SetParent(child, parent, out _), Is.True);
+            Assert.That(
+                VariantSourceDatabase.TryLoad(child, out var document, out _, out var error),
+                Is.True,
+                error);
 
-            child.EditorSetOverride("_nested", false);
-
-            Assert.That(child.NestedAmount, Is.EqualTo(3));
-            Assert.That(child.OverridePaths, Is.Empty);
+            Assert.That(document.OverridePaths, Is.Empty);
+            Assert.That(document.Values.Select(record => record.Path), Is.EquivalentTo(new[] {"_localNote"}));
         }
 
         [Test]
-        public void ApplyOverrideMovesValueToImmediateParent()
+        public void ParentChangesAreMaterializedWhenChildIsReimported()
         {
-            var parent = CreateVariant();
-            parent.SetNumber(12);
+            var parent = CreateRoot("LiveParent");
+            var child = CreateRoot("LiveChild");
+            parent.PublicNumber = 12;
+            child.PublicNumber = 12;
+            parent = Persist(parent);
+            child = Persist(child);
+            Assert.That(ScriptableVariantAssetUtility.SetParent(child, parent, out _), Is.True);
+            child = Reimport(child);
+            Assert.That(child.PublicNumber, Is.EqualTo(12));
 
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_number", true);
-            child.SetNumber(37);
+            parent = AssetDatabase.LoadAssetAtPath<ScriptableVariantTestAsset>(
+                TestFolder + "/LiveParent.svariant");
+            var childPath = AssetDatabase.GetAssetPath(child);
+            parent.PublicNumber = 99;
+            ScriptableVariantAssetUtility.NotifyValuesChanged(parent, nameof(parent.PublicNumber));
+            Reimport(parent);
+            VariantSourceDatabase.ImportNow(childPath);
+            child = AssetDatabase.LoadAssetAtPath<ScriptableVariantTestAsset>(childPath);
 
-            Assert.That(ScriptableVariantAssetUtility.ApplyToParent(child, "_number"), Is.True);
-            Assert.That(parent.Number, Is.EqualTo(37));
-            Assert.That(child.Number, Is.EqualTo(37));
-            Assert.That(child.IsOverridden("_number"), Is.False);
+            Assert.That(child.PublicNumber, Is.EqualTo(99));
         }
 
-        [Test]
-        public void ApplyOverrideKeepsOverrideOnIntermediateParent()
+        private static ScriptableVariantTestAsset CreateRoot(string name)
         {
-            var root = CreateVariant();
-            root.SetNested(3, "root");
-
-            var parent = CreateVariant();
-            parent.EditorSetParent(root);
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_nested._amount", true);
-            child.SetNestedAmount(42);
-
-            Assert.That(ScriptableVariantAssetUtility.ApplyToParent(child, "_nested._amount"), Is.True);
-            Assert.That(root.NestedAmount, Is.EqualTo(3));
-            Assert.That(parent.NestedAmount, Is.EqualTo(42));
-            Assert.That(parent.IsOverridden("_nested._amount"), Is.True);
-            Assert.That(child.NestedAmount, Is.EqualTo(42));
-            Assert.That(child.IsOverridden("_nested._amount"), Is.False);
+            return (ScriptableVariantTestAsset)ScriptableVariantAssetUtility.CreateRoot(
+                typeof(ScriptableVariantTestAsset),
+                TestFolder + "/" + name + ".svariant");
         }
 
-        [Test]
-        public void ApplyContainerMovesAllNestedOverrides()
+        private static ScriptableVariantTestAsset Persist(ScriptableVariantTestAsset asset)
         {
-            var parent = CreateVariant();
-            parent.SetNested(3, "parent");
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_nested._amount", true);
-            child.EditorSetOverride("_nested._label", true);
-            child.SetNested(14, "child");
-
-            Assert.That(ScriptableVariantAssetUtility.ApplyToParent(child, "_nested"), Is.True);
-            Assert.That(parent.NestedAmount, Is.EqualTo(14));
-            Assert.That(parent.NestedLabel, Is.EqualTo("child"));
-            Assert.That(child.OverridePaths, Is.Empty);
+            ScriptableVariantAssetUtility.NotifyValuesChanged(asset);
+            return Reimport(asset);
         }
 
-        [Test]
-        public void RevertOnNestedFieldRemovesOwningOverride()
+        private static ScriptableVariantTestAsset Reimport(ScriptableVariantTestAsset asset)
         {
-            var parent = CreateVariant();
-            parent.SetNested(3, "parent");
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorSetOverride("_nested", true);
-            child.SetNested(14, "child");
-
-            ScriptableVariantAssetUtility.Revert(child, "_nested._amount");
-
-            Assert.That(child.NestedAmount, Is.EqualTo(3));
-            Assert.That(child.NestedLabel, Is.EqualTo("parent"));
-            Assert.That(child.OverridePaths, Is.Empty);
+            var path = AssetDatabase.GetAssetPath(asset);
+            VariantSourceDatabase.ImportNow(path);
+            return AssetDatabase.LoadAssetAtPath<ScriptableVariantTestAsset>(path);
         }
-
-        [Test]
-        public void FlattenKeepsEffectiveValuesAndRemovesParent()
-        {
-            var parent = CreateVariant();
-            parent.SetNumber(21);
-
-            var child = CreateVariant();
-            child.EditorSetParent(parent);
-            child.EditorFlatten();
-
-            parent.SetNumber(55);
-
-            Assert.That(child.Parent, Is.Null);
-            Assert.That(child.Number, Is.EqualTo(21));
-            Assert.That(child.OverridePaths, Is.Empty);
-        }
-
-        [Test]
-        public void ParentAssignmentRejectsCycle()
-        {
-            var root = CreateVariant();
-            var child = CreateVariant();
-            child.EditorSetParent(root);
-
-            Assert.That(root.CanAssignParent(child, out var error), Is.False);
-            Assert.That(error, Does.Contain("cycle"));
-        }
-
-        [Test]
-        public void GenericConvenienceBaseStillProvidesTypedParent()
-        {
-            var parent = CreateVariant<TypedTestVariant>();
-            var child = CreateVariant<TypedTestVariant>();
-
-            child.EditorSetParent(parent);
-
-            TypedTestVariant typedParent = child.Parent;
-            Assert.That(typedParent, Is.SameAs(parent));
-        }
-
-        private TestVariant CreateVariant()
-        {
-            return CreateVariant<TestVariant>();
-        }
-
-        private T CreateVariant<T>() where T : ScriptableObject
-        {
-            var variant = ScriptableObject.CreateInstance<T>();
-            _created.Add(variant);
-            return variant;
-        }
-
-    }
-
-    [Serializable]
-    public sealed class ScriptableVariantTestNestedData
-    {
-        [SerializeField]
-        private int _amount;
-
-        [SerializeField]
-        private string _label;
-
-        public int Amount => _amount;
-        public string Label => _label;
-
-        public void Set(int amount, string label)
-        {
-            _amount = amount;
-            _label = label;
-        }
-
-        public void SetAmount(int amount)
-        {
-            _amount = amount;
-        }
-    }
-
-    public abstract class TestVariantBase : ScriptableVariant
-    {
-        [SerializeField]
-        private int _number;
-
-        [SerializeField]
-        private ScriptableVariantTestNestedData _nested = new ScriptableVariantTestNestedData();
-
-        [SerializeField]
-        private List<int> _values = new List<int>();
-
-        [SerializeField, VariantLocal]
-        private string _localNote;
-
-        public int Number
-        {
-            get
-            {
-                EnsureResolved();
-                return _number;
-            }
-        }
-
-        public int NestedAmount
-        {
-            get
-            {
-                EnsureResolved();
-                return _nested.Amount;
-            }
-        }
-
-        public string NestedLabel
-        {
-            get
-            {
-                EnsureResolved();
-                return _nested.Label;
-            }
-        }
-
-        public IReadOnlyList<int> Values
-        {
-            get
-            {
-                EnsureResolved();
-                return _values;
-            }
-        }
-
-        public string LocalNote => _localNote;
-
-        public void SetNumber(int value)
-        {
-            _number = value;
-            EditorNotifyValuesChanged();
-        }
-
-        public void SetNested(int amount, string label)
-        {
-            _nested.Set(amount, label);
-            EditorNotifyValuesChanged();
-        }
-
-        public void SetNestedAmount(int amount)
-        {
-            _nested.SetAmount(amount);
-            EditorNotifyValuesChanged();
-        }
-
-        public void SetValues(params int[] values)
-        {
-            _values = new List<int>(values);
-            EditorNotifyValuesChanged();
-        }
-
-        public void SetLocalNote(string value)
-        {
-            _localNote = value;
-            EditorNotifyValuesChanged();
-        }
-    }
-
-    public sealed class TestVariant : TestVariantBase
-    {
-    }
-
-    public sealed class TypedTestVariant : ScriptableVariant<TypedTestVariant>
-    {
     }
 }

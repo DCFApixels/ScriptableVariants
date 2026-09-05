@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -65,7 +66,7 @@ namespace DCFApixels.ScriptableVariants
 
         internal static bool IsKnownPath(Type rootType, string propertyPath)
         {
-            return TryGetFieldPath(rootType, propertyPath, false, out _);
+            return TryGetFieldPath(rootType, propertyPath, out _);
         }
 
         internal static bool IsAtomicOverridePath(Type rootType, string propertyPath)
@@ -83,7 +84,7 @@ namespace DCFApixels.ScriptableVariants
         internal static bool TryRemapFormerPath(Type rootType, string oldPath, out string remappedPath)
         {
             remappedPath = oldPath;
-            if (!TryGetFieldPath(rootType, oldPath, true, out var fields))
+            if (!TryGetFieldPath(rootType, oldPath, true, true, out var fields))
             {
                 return false;
             }
@@ -157,6 +158,101 @@ namespace DCFApixels.ScriptableVariants
             }
 
             return true;
+        }
+
+        internal static bool TryGetPathValue(
+            ScriptableVariant source,
+            string propertyPath,
+            out object value,
+            out Type declaredType)
+        {
+            value = null;
+            declaredType = null;
+            if (source == null ||
+                !TryGetFieldPath(source.GetType(), propertyPath, false, true, out var fields))
+            {
+                return false;
+            }
+
+            object current = source;
+            for (var i = 0; i < fields.Length; i++)
+            {
+                if (current == null)
+                {
+                    return false;
+                }
+
+                current = fields[i].GetValue(current);
+            }
+
+            value = current;
+            declaredType = fields[fields.Length - 1].FieldType;
+            return true;
+        }
+
+        internal static bool TryGetPathType(Type rootType, string propertyPath, out Type declaredType)
+        {
+            declaredType = null;
+            if (!TryGetFieldPath(rootType, propertyPath, false, true, out var fields))
+            {
+                return false;
+            }
+
+            declaredType = fields[fields.Length - 1].FieldType;
+            return true;
+        }
+
+        internal static bool TrySetPathValue(
+            ScriptableVariant destination,
+            string propertyPath,
+            object value)
+        {
+            if (destination == null ||
+                !TryGetFieldPath(destination.GetType(), propertyPath, false, true, out var fields))
+            {
+                return false;
+            }
+
+            return TrySetPathValue(destination, fields, 0, value, out _);
+        }
+
+        internal static string GetRootPath(string propertyPath)
+        {
+            if (string.IsNullOrEmpty(propertyPath))
+            {
+                return string.Empty;
+            }
+
+            var separator = propertyPath.IndexOf('.');
+            return separator < 0 ? propertyPath : propertyPath.Substring(0, separator);
+        }
+
+        internal static string GetLocalControllerPath(Type rootType, string propertyPath)
+        {
+            if (!TryGetFieldPath(rootType, propertyPath, false, true, out var fields))
+            {
+                return null;
+            }
+
+            var segments = propertyPath.Split('.');
+            for (var i = 0; i < fields.Length; i++)
+            {
+                if (!fields[i].IsDefined(typeof(VariantLocalAttribute), true))
+                {
+                    continue;
+                }
+
+                return string.Join(".", segments, 0, i + 1);
+            }
+
+            return null;
+        }
+
+        internal static string[] GetLocalPaths(Type rootType)
+        {
+            var result = new List<string>();
+            CollectLocalPaths(GetRootFields(rootType), string.Empty, result);
+            return result.ToArray();
         }
 
         private static object MergeField(
@@ -328,7 +424,7 @@ namespace DCFApixels.ScriptableVariants
             return MemberwiseCloneMethod.Invoke(value, null);
         }
 
-        private static FieldInfo[] GetSerializableFields(Type type)
+        internal static FieldInfo[] GetSerializableFields(Type type)
         {
             lock (CacheLock)
             {
@@ -387,7 +483,7 @@ namespace DCFApixels.ScriptableVariants
             return field.IsDefined(typeof(SerializeReference), true) || IsSerializableType(field.FieldType, false);
         }
 
-        private static bool IsSerializableType(Type type, bool insideCollection)
+        internal static bool IsSerializableType(Type type, bool insideCollection)
         {
             if (type.IsPrimitive || type.IsEnum || type == typeof(string))
             {
@@ -474,13 +570,14 @@ namespace DCFApixels.ScriptableVariants
 
         private static bool TryGetFieldPath(Type rootType, string propertyPath, out FieldInfo[] fields)
         {
-            return TryGetFieldPath(rootType, propertyPath, false, out fields);
+            return TryGetFieldPath(rootType, propertyPath, false, false, out fields);
         }
 
         private static bool TryGetFieldPath(
             Type rootType,
             string propertyPath,
             bool allowFormerNames,
+            bool allowVariantLocal,
             out FieldInfo[] fields)
         {
             fields = null;
@@ -497,7 +594,8 @@ namespace DCFApixels.ScriptableVariants
             {
                 var candidates = i == 0 ? GetRootFields(currentType) : GetSerializableFields(currentType);
                 var field = FindField(candidates, segments[i], allowFormerNames);
-                if (field == null || field.IsDefined(typeof(VariantLocalAttribute), true))
+                if (field == null ||
+                    !allowVariantLocal && field.IsDefined(typeof(VariantLocalAttribute), true))
                 {
                     return false;
                 }
@@ -571,6 +669,72 @@ namespace DCFApixels.ScriptableVariants
             return true;
         }
 
+        private static bool TrySetPathValue(
+            object target,
+            FieldInfo[] fields,
+            int fieldIndex,
+            object value,
+            out object updatedTarget)
+        {
+            updatedTarget = target;
+            if (target == null)
+            {
+                return false;
+            }
+
+            var field = fields[fieldIndex];
+            if (fieldIndex == fields.Length - 1)
+            {
+                field.SetValue(target, value);
+                updatedTarget = target;
+                return true;
+            }
+
+            var nestedTarget = field.GetValue(target);
+            if (nestedTarget == null)
+            {
+                try
+                {
+                    nestedTarget = Activator.CreateInstance(field.FieldType, true);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            if (!TrySetPathValue(nestedTarget, fields, fieldIndex + 1, value, out var updatedNestedTarget))
+            {
+                return false;
+            }
+
+            field.SetValue(target, updatedNestedTarget);
+            updatedTarget = target;
+            return true;
+        }
+
+        private static void CollectLocalPaths(
+            FieldInfo[] fields,
+            string prefix,
+            List<string> result)
+        {
+            for (var i = 0; i < fields.Length; i++)
+            {
+                var field = fields[i];
+                var path = string.IsNullOrEmpty(prefix) ? field.Name : prefix + "." + field.Name;
+                if (field.IsDefined(typeof(VariantLocalAttribute), true))
+                {
+                    result.Add(path);
+                    continue;
+                }
+
+                if (!field.IsDefined(typeof(SerializeReference), true) && IsInlineComposite(field.FieldType))
+                {
+                    CollectLocalPaths(GetSerializableFields(field.FieldType), path, result);
+                }
+            }
+        }
+
         private static FieldInfo FindField(FieldInfo[] fields, string name, bool allowFormerNames)
         {
             for (var i = 0; i < fields.Length; i++)
@@ -617,3 +781,4 @@ namespace DCFApixels.ScriptableVariants
         }
     }
 }
+#endif

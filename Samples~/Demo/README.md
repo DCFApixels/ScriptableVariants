@@ -22,5 +22,5 @@ Select them in this order and compare the blue override bars in Tri Inspector.
 5. Use **Actions → Flatten** on a duplicate of the boss asset to detach it while keeping
    effective values.
 
-You can create more roots through **Assets → Create → Scriptable Variants Demo → Weapon Config**
-and create descendants by assigning their **Parent** in the Inspector header.
+You can create more roots through **Assets → Create → Scriptable Variant...**, choose
+`DemoWeaponConfig`, and create descendants by assigning their **Parent** in the Inspector header.

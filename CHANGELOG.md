@@ -4,6 +4,22 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Replaced embedded `.asset` inheritance metadata with the dedicated `.svariant` source format.
+- Reduced the runtime API to the non-generic `ScriptableVariant` marker and `VariantLocalAttribute`.
+- Added a scripted importer that publishes flat, concrete ScriptableObjects for runtime and
+  Addressables while resolving inheritance only in the Editor.
+- Changed child serialization to retain only overrides and `[VariantLocal]` values.
+- Added **Assets → Create → Scriptable Variant...** for creating typed source assets.
+- Kept the Tri Inspector parent header, blue override gutters, bold override styling, and property
+  context actions on top of the imported objects.
+- Added support for public serialized fields without requiring getters or synchronization calls.
+- Added editor serializers for Unity asset references, managed references, curves, and gradients.
+- Made `.svariant` imports retry automatically after their target script assembly finishes loading.
+- Added a source-editing importer inspector using Tri Inspector on an editable temporary instance.
+- Added source-backed Undo/Redo for field edits and Parent/Apply/Revert/Flatten actions.
+- Kept working objects stable across reimports and shared between Inspectors of the same source.
+- This is a breaking authoring-format change; legacy `.asset` variants are not used as parents.
+
 ## 0.1.2 - 2026-09-04
 
 - Made non-generic `ScriptableVariant` the primary API while retaining

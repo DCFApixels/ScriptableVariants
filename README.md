@@ -1,140 +1,124 @@
 # Scriptable Variants
 
-`ScriptableVariants` adds single-parent value inheritance and per-property overrides to
-Unity `ScriptableObject` assets. Its Inspector integration is built on Tri Inspector 2.
+[English](README.md) | [Русский](README.ru.md)
+
+`ScriptableVariants` adds single-parent inheritance and per-property overrides to Unity
+`ScriptableObject` data. Authoring uses a compact `.svariant` source file; Unity imports that
+source as a normal, concrete and fully resolved `ScriptableObject`.
+
+The Inspector integration is built for Tri Inspector 2. Tri remains responsible for the actual
+field UI, attributes, groups, validation and callbacks. Scriptable Variants adds the parent header,
+override markers and context actions around those controls.
 
 ## Requirements and installation
 
 - Unity 6000.0 or newer.
 - Tri Inspector 2 at commit `f3239650e307275edd06c25e7cda1fdc7207f5b5`.
+- Newtonsoft Json for Unity 3.0.2 (declared as a package dependency).
 
 Unity Package Manager does not support a Git package declaring another Git package as a
-transitive dependency. Add both Git dependencies to the consuming project's
-`Packages/manifest.json`:
+transitive dependency. Add Tri Inspector first, then add Scriptable Variants from its Git URL:
 
 ```json
 {
   "dependencies": {
     "com.codewriter.triinspector": "https://github.com/codewriter-packages/Tri-Inspector.git#f3239650e307275edd06c25e7cda1fdc7207f5b5",
-    "com.dcfapixels.scriptable-variants": "https://github.com/DCFApixels/ScriptableVariants.git#v0.1.2"
+    "com.dcfapixels.scriptable-variants": "https://github.com/DCFApixels/ScriptableVariants.git"
   }
 }
 ```
 
-Alternatively, add Tri Inspector first and then use **Package Manager → Add package from git
-URL** with `https://github.com/DCFApixels/ScriptableVariants.git#v0.1.2`.
 Authentication must already be configured for the private repository's HTTPS or SSH URL.
 
-## Quick start
+## Define a variant type
+
+`ScriptableVariant` is intentionally only a marker base class. Serialized data may use either
+public fields or private `[SerializeField]` fields; no property wrappers or synchronization calls
+are required.
 
 ```csharp
 using DCFApixels.ScriptableVariants;
 using TriInspector;
 using UnityEngine;
 
-[CreateAssetMenu(menuName = "Game/Weapon Config")]
 public sealed class WeaponConfig : ScriptableVariant
 {
-    [SerializeField, Min(0), Slider(0, 100)]
-    private float _damage = 10;
+    [Min(0), Slider(0, 100)]
+    public float Damage = 10;
 
     [SerializeField]
     private WeaponVisuals _visuals;
 
-    public float Damage
-    {
-        get
-        {
-            EnsureResolved();
-            return _damage;
-        }
-    }
+    public WeaponVisuals Visuals => _visuals;
 }
 ```
 
-Deriving directly from `ScriptableVariant` is the primary API and keeps regular C# inheritance
-simple. `ScriptableVariant<TSelf>` remains available as an optional convenience when a strongly
-typed `Parent` property is preferred:
+Create the source through **Assets → Create → Scriptable Variant...** and choose its concrete
+type. Do not use `[CreateAssetMenu]` for variant types: Unity's built-in command creates a regular
+`.asset`, which has no variant source metadata.
 
-```csharp
-public abstract class WeaponConfigBase : ScriptableVariant
-{
-    // Shared serialized fields and behavior.
-}
+## Inspector workflow
 
-public sealed class RifleConfig : WeaponConfigBase
-{
-    // Rifle-specific fields and behavior.
-}
-```
+Select the `.svariant` source to edit it. Its importer inspector draws an editable temporary
+instance through Tri Inspector and automatically writes changes to the source file. The generated
+runtime object is not edited directly. Undo/Redo restores both values and inheritance metadata,
+including after closing the Inspector; Apply to Parent restores the parent and child together.
+Multiple Inspectors of the same source share one working instance. A dependency reimport refreshes
+open working instances without turning inherited changes into overrides.
 
-The generic convenience remains available when no intermediate C# base class is needed:
+Assign another `.svariant` of the exact same concrete type to **Parent**. The header shows the
+inheritance chain and an **Actions** menu. A thin blue line marks a local override; a softer blue
+line on a container means that it contains overridden children. Locally controlled labels and
+displayed field values are bold.
 
-```csharp
-public sealed class SimpleConfig : ScriptableVariant<SimpleConfig>
-{
-}
-```
+When a parent is first assigned or replaced, current child values are compared with the new
+parent. Every difference becomes an override and existing overrides remain. Equal fields inherit
+from the new parent. `[VariantLocal]` fields always remain local and never get override markers.
 
-Create assets normally and assign another asset of the exact same type to **Parent** in the
-native Inspector header. The same header shows the inheritance chain and the **Actions** menu.
-A child reads all values from its parent. A thin blue line marks a local override; a softer blue
-line on a container means that it contains overridden child fields. Locally controlled property
-labels and displayed field values use bold text.
+Editing an inherited field creates an override. Right-click the field or its blue gutter to use
+**Override Property**, **Apply to Parent**, or **Revert**. **Actions → Flatten** removes the parent
+while retaining all effective values.
 
-When **Parent** is assigned or changed, the asset's current effective values are compared with
-the new parent's values. Every difference becomes a local override, while existing overrides
-remain. Equal properties continue inheriting from the new parent; `[VariantLocal]` fields are
-kept local and are not added to the override list.
+## File and runtime model
 
-Editing an inherited property automatically creates an override while preserving the rest of
-the inherited data. Right-click an overridden property or its left gutter to open the variant
-actions. **Apply to Parent** moves the local value to the immediate parent. **Revert** discards
-the local value and restores the value from the nearest ancestor. The same menu can explicitly
-create an override without changing its value. **Actions → Flatten** removes the parent while
-preserving all currently effective values.
+A root `.svariant` stores all root field values. A child stores only:
 
-## Runtime contract
+- its parent asset GUID;
+- its override property paths and their values;
+- values marked `[VariantLocal]`.
 
-Inherited values are materialized into the child object when it is enabled and whenever
-`EnsureResolved()` is called. Reflection and deep copies occur only while resolving; normal
-field/property reads do not walk the parent chain.
+The scripted importer resolves the parent first, applies the stored overrides, and publishes a
+concrete `ScriptableObject` as the file's main asset. Parent assets are registered as import
+dependencies, so changing a parent causes its descendants to be reimported. Edits are debounced
+briefly before reimport to keep ordinary Inspector typing responsive.
 
-Prefer private serialized fields and read-only public properties that call `EnsureResolved()`.
-If code changes serialized values at runtime, call `InvalidateResolvedData()` afterwards.
+The imported object is flat. Player code, asset references and Addressables load the concrete
+type and read its fields directly; the player has no parent graph, override list, reflection pass,
+`EnsureResolved`, or synchronization API. Inheritance exists only while Unity imports and edits
+the source asset.
 
-If a derived class implements `OnEnable`, `OnDisable`, or `OnValidate`, it must override the
-protected base method and call `base` so automatic invalidation remains active.
+Editor tooling that needs an immediate refresh can call
+`ScriptableVariantAssetUtility.EnsureResolved(asset)`. It forces the source chain to reimport and
+returns the current imported instance; normal Inspector edits and dependency imports do not need
+this call.
 
-## Override boundaries
+## Serialization boundaries
 
-- Inline `[Serializable]` classes and structs support leaf-field overrides.
-- Arrays and `List<T>` are overridden as a whole collection.
-- `[SerializeReference]` values are overridden as a whole managed reference.
-- Unity object references and built-in Unity values are overridden as a whole value.
-- Add `[VariantLocal]` to a serialized field that must always remain local.
-- Parent and child assets must have exactly the same concrete type.
-- A cyclic parent chain is rejected by the Inspector and guarded against at runtime.
+- Public fields and private `[SerializeField]` fields follow Unity's serialization rules.
+- Inline `[Serializable]` classes and structs support leaf overrides.
+- Arrays and `List<T>` are overridden as one collection.
+- `[SerializeReference]` values are overridden as one managed-reference graph.
+- Unity asset references are stored by `GlobalObjectId` and registered as import dependencies.
+- `AnimationCurve` and `Gradient` have dedicated value serialization.
+- Fields renamed with `[FormerlySerializedAs]` are remapped during import.
+- Parent and child assets must have exactly the same concrete type, and cycles are rejected.
 
-Override identifiers use Unity property paths. Fields renamed with `[FormerlySerializedAs]`
-are remapped automatically. Unknown paths are reported in the Inspector and can be removed
-with **Remove Orphans**.
-
-## Tri Inspector
-
-The integration wraps Tri Inspector's existing visual-element drawer chain. Tri attributes
-such as groups, validation, conditionals, custom drawers, and value-change callbacks remain
-responsible for rendering the actual value field.
-
-Variant actions are added to Unity's property context menu. The blue override gutter has the
-same context menu as a fallback for custom Tri Inspector controls that consume the field event.
-
-The integration targets the pinned Tri Inspector commit above so preview API changes cannot
-silently break its editor bindings.
+Regular `.asset` instances created by older package versions are not `.svariant` sources and do
+not participate in the new inheritance system. Keep backups while evaluating this breaking format
+on the `testing` branch.
 
 ## Sample
 
-A ready-made three-level weapon configuration chain is available from the package details under
-**Samples → Weapon Configuration Demo → Import**. See
-[`Samples~/Demo/README.md`](Samples~/Demo/README.md) for its inherited and overridden fields
-and a short Inspector walkthrough.
+The package includes a three-level weapon configuration chain under **Samples → Weapon
+Configuration Demo → Import**. See [`Samples~/Demo/README.md`](Samples~/Demo/README.md) for the
+field-by-field walkthrough.

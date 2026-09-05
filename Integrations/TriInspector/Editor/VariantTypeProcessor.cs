@@ -12,6 +12,11 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
     {
         public override void ProcessType(Type type, List<TriPropertyDefinition> properties)
         {
+            if (!typeof(ScriptableVariant).IsAssignableFrom(type))
+            {
+                return;
+            }
+
             for (var i = 0; i < properties.Count; i++)
             {
                 var property = properties[i];

@@ -1,0 +1,29 @@
+{
+  "formatVersion": 1,
+  "scriptGuid": "e5e188f9a6d94bfc88d6fd1aa16f99fa",
+  "typeName": "DCFApixels.ScriptableVariants.Demo.DemoWeaponConfig, DCFApixels.ScriptableVariants.Demo",
+  "parentGuid": "a6fc9175435448ce9cc0558d046200be",
+  "overridePaths": [
+    "_damage",
+    "_displayName",
+    "_visuals._projectileScale"
+  ],
+  "values": [
+    {
+      "path": "_damage",
+      "value": 42.0
+    },
+    {
+      "path": "_designerNote",
+      "value": "Boss-only tuning; note remains local without an override marker."
+    },
+    {
+      "path": "_displayName",
+      "value": "Boss Incendiary Rifle"
+    },
+    {
+      "path": "_visuals._projectileScale",
+      "value": 1.6
+    }
+  ]
+}
