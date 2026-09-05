@@ -5,7 +5,9 @@ All notable changes to this package are documented in this file.
 ## Unreleased
 
 - Fixed Assets/Create/Scriptable Variant silently doing nothing without an IMGUI event; type
-  selection now uses a UI Toolkit utility window and displays creation errors in the window.
+  selection now uses a UI Toolkit utility window with search, a virtualized type list, keyboard
+  navigation, a destination hint and native Project-window filename entry. No code generation or
+  internal menu API reflection; source creation still uses the existing transactional save path.
 - Added format 3 with numeric arrays for Vector2/3/4, Vector2Int/3Int, Quaternion, Color and Color32,
   including nested/collection values, Bounds vectors and gradient color keys. Quaternion components
   are preserved without normalization. Only format 3 is supported; no legacy readers or migration.

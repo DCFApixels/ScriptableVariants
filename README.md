@@ -53,8 +53,12 @@ public sealed class WeaponConfig : ScriptableVariant
 }
 ```
 
-Create the source through **Assets → Create → Scriptable Variant...** and choose its concrete
-type. Do not use `[CreateAssetMenu]` for variant types: Unity's built-in command creates a regular
+Create the source through **Assets → Create → Scriptable Variant...**. Search by type name,
+namespace or assembly, select a type, then double-click, press Enter or click **Create**. Enter the
+filename in the Project window; cancelling name entry creates no source file. The target folder is
+shown in the picker (package selections fall back to `Assets`). Use arrow keys to choose a type and
+Escape to close the picker. It uses public Unity APIs, without generated menu code or internal API reflection.
+Do not use `[CreateAssetMenu]` for variant types: Unity's built-in command creates a regular
 `.asset`, which has no variant source metadata.
 
 ## Inspector workflow
