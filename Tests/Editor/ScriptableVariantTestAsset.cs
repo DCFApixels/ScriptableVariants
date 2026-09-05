@@ -7,6 +7,9 @@ namespace DCFApixels.ScriptableVariants.Tests
     public sealed class ScriptableVariantTestAsset : ScriptableVariant
     {
         public int PublicNumber;
+        public AnimationCurve Curve = new AnimationCurve();
+        public Gradient Gradient = new Gradient();
+        public Bounds Bounds;
 
         [SerializeField]
         private ScriptableVariantTestNestedData _nested = new ScriptableVariantTestNestedData();

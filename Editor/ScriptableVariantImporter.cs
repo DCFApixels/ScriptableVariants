@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace DCFApixels.ScriptableVariants.Editor
 {
-    [ScriptedImporter(2, VariantSourceDatabase.Extension)]
+    [ScriptedImporter(3, VariantSourceDatabase.Extension)]
     internal sealed class ScriptableVariantImporter : ScriptedImporter
     {
         public override void OnImportAsset(AssetImportContext context)
@@ -63,7 +63,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
             RegisterScriptDependency(context, scriptPath);
             RemapFormerPaths(document, variantType);
-            if (!ValidateParentChain(assetPath, document, out error))
+            if (!ValidateParentChain(assetPath, document, context, out error))
             {
                 return false;
             }
@@ -128,6 +128,16 @@ namespace DCFApixels.ScriptableVariants.Editor
                 variantType.ContainsGenericParameters)
             {
                 error = $"'{variantType.FullName}' must be a concrete, non-generic ScriptableVariant type.";
+                return false;
+            }
+
+            try
+            {
+                VariantSerialization.GetLocalPaths(variantType);
+            }
+            catch (InvalidOperationException exception)
+            {
+                error = exception.Message;
                 return false;
             }
 
@@ -329,6 +339,7 @@ namespace DCFApixels.ScriptableVariants.Editor
         private static bool ValidateParentChain(
             string sourcePath,
             VariantSourceDocument sourceDocument,
+            AssetImportContext context,
             out string error)
         {
             var ownGuid = AssetDatabase.AssetPathToGUID(sourcePath);
@@ -342,6 +353,15 @@ namespace DCFApixels.ScriptableVariants.Editor
                     return false;
                 }
 
+                // Register before reading: broken or missing parents must also invalidate children
+                // when they are fixed. A GUID dependency survives a temporarily missing source.
+                if (!GUID.TryParse(parentGuid, out var dependencyGuid) || dependencyGuid.Empty())
+                {
+                    error = $"Parent GUID '{parentGuid}' is invalid.";
+                    return false;
+                }
+
+                context?.DependsOnSourceAsset(dependencyGuid);
                 var parentPath = AssetDatabase.GUIDToAssetPath(parentGuid);
                 if (!VariantSourceDatabase.TryLoadUncached(parentPath, out var parentDocument, out var loadError))
                 {

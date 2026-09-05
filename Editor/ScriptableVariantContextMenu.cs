@@ -1,6 +1,4 @@
 using System;
-using System.Collections;
-using System.Reflection;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -14,12 +12,6 @@ namespace DCFApixels.ScriptableVariants.Editor
         private static readonly GUIContent OverridePropertyLabel = new GUIContent("Override Property");
         private static readonly GUIContent ApplyToParentLabel = new GUIContent("Apply to Parent");
         private static readonly GUIContent RevertLabel = new GUIContent("Revert");
-
-        private static readonly FieldInfo MenuItemsField = typeof(GenericMenu).GetField(
-            "m_MenuItems",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-
-        private static readonly FieldInfo MenuItemSeparatorField = FindMenuItemSeparatorField();
 
         static ScriptableVariantContextMenu()
         {
@@ -70,7 +62,6 @@ namespace DCFApixels.ScriptableVariants.Editor
                 !(property.serializedObject.targetObject is ScriptableVariant variant) ||
                 !CanHandle(variant, property.propertyPath))
             {
-                RemoveTrailingSeparator(menu);
                 return;
             }
 
@@ -105,34 +96,6 @@ namespace DCFApixels.ScriptableVariants.Editor
             return VariantEditingSession.IsWorkingCopy(variant) &&
                    ScriptableVariantAssetUtility.HasParent(variant) &&
                    VariantSerialization.IsKnownPath(variant.GetType(), propertyPath);
-        }
-
-        private static void RemoveTrailingSeparator(GenericMenu menu)
-        {
-            // Unity inserts a separator before invoking contextualPropertyMenu callbacks.
-            // Remove it when this callback has no entries to contribute.
-            if (!(MenuItemsField?.GetValue(menu) is IList items) || items.Count == 0)
-            {
-                return;
-            }
-
-            var lastItem = items[items.Count - 1];
-            if (MenuItemSeparatorField != null &&
-                MenuItemSeparatorField.GetValue(lastItem) is bool isSeparator &&
-                isSeparator)
-            {
-                items.RemoveAt(items.Count - 1);
-            }
-        }
-
-        private static FieldInfo FindMenuItemSeparatorField()
-        {
-            var itemTypes = MenuItemsField?.FieldType.GetGenericArguments();
-            return itemTypes != null && itemTypes.Length == 1
-                ? itemTypes[0].GetField(
-                    "separator",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                : null;
         }
 
         private static void Execute(Action action, Action afterChange)

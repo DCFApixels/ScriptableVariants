@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Serialization;
 using Object = UnityEngine.Object;
 
 namespace DCFApixels.ScriptableVariants.Editor
@@ -21,11 +23,14 @@ namespace DCFApixels.ScriptableVariants.Editor
             PreserveReferencesHandling = PreserveReferencesHandling.Objects,
             ReferenceLoopHandling = ReferenceLoopHandling.Serialize,
             NullValueHandling = NullValueHandling.Include,
+            DateParseHandling = DateParseHandling.None,
+            ObjectCreationHandling = ObjectCreationHandling.Replace,
             Converters = new List<JsonConverter>
             {
                 new UnityObjectConverter(),
                 new AnimationCurveConverter(),
                 new GradientConverter(),
+                new BoundsConverter(),
                 new Hash128Converter(),
             },
         });
@@ -95,12 +100,33 @@ namespace DCFApixels.ScriptableVariants.Editor
 
                 var fields = VariantSerialization.GetSerializableFields(type);
                 var properties = new List<JsonProperty>(fields.Length);
+                var names = new HashSet<string>(StringComparer.Ordinal);
                 for (var i = 0; i < fields.Length; i++)
                 {
                     var property = base.CreateProperty(fields[i], MemberSerialization.Fields);
                     property.Readable = true;
                     property.Writable = true;
                     properties.Add(property);
+                    names.Add(property.PropertyName);
+                }
+
+                // Accept former names on read, but write only the current field name.
+                // Resolve current names first so a former name never shadows another real field.
+                for (var i = 0; i < fields.Length; i++)
+                {
+                    foreach (var formerName in fields[i].GetCustomAttributes<FormerlySerializedAsAttribute>(true))
+                    {
+                        if (string.IsNullOrEmpty(formerName.oldName) || !names.Add(formerName.oldName))
+                        {
+                            continue;
+                        }
+
+                        var alias = base.CreateProperty(fields[i], MemberSerialization.Fields);
+                        alias.PropertyName = formerName.oldName;
+                        alias.Readable = false;
+                        alias.Writable = true;
+                        properties.Add(alias);
+                    }
                 }
 
                 return properties;
@@ -321,6 +347,8 @@ namespace DCFApixels.ScriptableVariants.Editor
                 writer.WriteStartObject();
                 writer.WritePropertyName("mode");
                 writer.WriteValue((int)gradient.mode);
+                writer.WritePropertyName("colorSpace");
+                writer.WriteValue((int)gradient.colorSpace);
                 writer.WritePropertyName("colorKeys");
                 writer.WriteStartArray();
                 var colorKeys = gradient.colorKeys;
@@ -364,6 +392,10 @@ namespace DCFApixels.ScriptableVariants.Editor
                 {
                     mode = (GradientMode)(data["mode"]?.Value<int>() ?? 0),
                 };
+                if (data["colorSpace"] != null)
+                {
+                    gradient.colorSpace = (ColorSpace)data["colorSpace"].Value<int>();
+                }
                 var colorTokens = data["colorKeys"] as JArray;
                 var colorKeys = new GradientColorKey[colorTokens?.Count ?? 0];
                 for (var i = 0; i < colorKeys.Length; i++)
@@ -403,6 +435,41 @@ namespace DCFApixels.ScriptableVariants.Editor
                     data["g"]?.Value<float>() ?? 0f,
                     data["b"]?.Value<float>() ?? 0f,
                     data["a"]?.Value<float>() ?? 1f);
+            }
+        }
+
+        private sealed class BoundsConverter : JsonConverter
+        {
+            public override bool CanConvert(Type objectType)
+            {
+                return objectType == typeof(Bounds);
+            }
+
+            public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+            {
+                var bounds = (Bounds)value;
+                writer.WriteStartObject();
+                writer.WritePropertyName("center");
+                serializer.Serialize(writer, bounds.center);
+                writer.WritePropertyName("extents");
+                serializer.Serialize(writer, bounds.extents);
+                writer.WriteEndObject();
+            }
+
+            public override object ReadJson(
+                JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+            {
+                var data = JObject.Load(reader);
+                if (data["center"] == null || data["extents"] == null)
+                {
+                    throw new JsonSerializationException("A Bounds value must contain center and extents.");
+                }
+
+                return new Bounds
+                {
+                    center = data["center"].ToObject<Vector3>(serializer),
+                    extents = data["extents"].ToObject<Vector3>(serializer),
+                };
             }
         }
 

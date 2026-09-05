@@ -2,6 +2,7 @@ using System.Linq;
 using DCFApixels.ScriptableVariants.Editor;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEngine;
 
 namespace DCFApixels.ScriptableVariants.Tests
 {
@@ -126,6 +127,46 @@ namespace DCFApixels.ScriptableVariants.Tests
             child = AssetDatabase.LoadAssetAtPath<ScriptableVariantTestAsset>(childPath);
 
             Assert.That(child.PublicNumber, Is.EqualTo(99));
+        }
+
+        [Test]
+        public void NativeUnityValuesSurviveImportAndInheritance()
+        {
+            var parent = CreateRoot("NativeParent");
+            parent.Curve = AnimationCurve.Linear(0f, 2f, 1f, 6f);
+            parent.Gradient.colorSpace = ColorSpace.Linear;
+            parent.Gradient.mode = GradientMode.Fixed;
+            parent.Bounds = new Bounds(new Vector3(3f, 4f, 5f), new Vector3(2f, 6f, 10f));
+            parent = Persist(parent);
+            AssertNativeValues(parent);
+
+            var child = CreateRoot("NativeChild");
+            Assert.That(ScriptableVariantAssetUtility.SetParent(child, parent, out _), Is.True);
+            ScriptableVariantAssetUtility.RevertAll(child);
+            child = Reimport(child);
+            AssertNativeValues(child);
+            Assert.That(ScriptableVariantAssetUtility.GetOverridePaths(child), Is.Empty);
+        }
+
+        [Test]
+        public void EditableDocumentIsDetachedFromTheReadCache()
+        {
+            var asset = CreateRoot("DetachedDocument");
+            Assert.That(VariantSourceDatabase.TryLoadForEdit(asset, out var draft, out _, out _), Is.True);
+            draft.OverridePaths.Add(nameof(asset.PublicNumber));
+            draft.FindValue(nameof(asset.PublicNumber)).Value = new Newtonsoft.Json.Linq.JValue(100);
+
+            Assert.That(VariantSourceDatabase.TryLoad(asset, out var cached, out _, out _), Is.True);
+            Assert.That(cached.OverridePaths, Is.Empty);
+            Assert.That(cached.FindValue(nameof(asset.PublicNumber)).Value.ToObject<int>(), Is.Zero);
+        }
+
+        private static void AssertNativeValues(ScriptableVariantTestAsset asset)
+        {
+            Assert.That(asset.Curve.Evaluate(0.5f), Is.EqualTo(4f).Within(0.0001f));
+            Assert.That(asset.Gradient.colorSpace, Is.EqualTo(ColorSpace.Linear));
+            Assert.That(asset.Gradient.mode, Is.EqualTo(GradientMode.Fixed));
+            Assert.That(asset.Bounds, Is.EqualTo(new Bounds(new Vector3(3f, 4f, 5f), new Vector3(2f, 6f, 10f))));
         }
 
         private static ScriptableVariantTestAsset CreateRoot(string name)

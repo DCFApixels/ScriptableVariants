@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -33,6 +34,23 @@ namespace DCFApixels.ScriptableVariants.Editor
         [JsonProperty("values", Order = 5)]
         public List<VariantValueRecord> Values = new List<VariantValueRecord>();
 
+        internal VariantSourceDocument Clone()
+        {
+            return new VariantSourceDocument
+            {
+                FormatVersion = FormatVersion,
+                ScriptGuid = ScriptGuid,
+                TypeName = TypeName,
+                ParentGuid = ParentGuid,
+                OverridePaths = new List<string>(OverridePaths),
+                Values = Values.Select(record => new VariantValueRecord
+                {
+                    Path = record.Path,
+                    Value = record.Value?.DeepClone(),
+                }).ToList(),
+            };
+        }
+
         public void Normalize()
         {
             FormatVersion = CurrentFormatVersion;
@@ -45,13 +63,25 @@ namespace DCFApixels.ScriptableVariants.Editor
                 .ThenBy(path => path, StringComparer.Ordinal)
                 .ToList();
             OverridePaths = new List<string>(normalizedOverrides.Count);
+            var retainedOverrides = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < normalizedOverrides.Count; i++)
             {
                 var candidate = normalizedOverrides[i];
-                if (!OverridePaths.Any(
-                        ancestor => candidate.StartsWith(ancestor + ".", StringComparison.Ordinal)))
+                var hasAncestor = false;
+                for (var separator = candidate.LastIndexOf('.'); separator > 0;
+                     separator = candidate.LastIndexOf('.', separator - 1))
+                {
+                    if (retainedOverrides.Contains(candidate.Substring(0, separator)))
+                    {
+                        hasAncestor = true;
+                        break;
+                    }
+                }
+
+                if (!hasAncestor)
                 {
                     OverridePaths.Add(candidate);
+                    retainedOverrides.Add(candidate);
                 }
             }
 
@@ -131,6 +161,9 @@ namespace DCFApixels.ScriptableVariants.Editor
         {
             Formatting = Formatting.Indented,
             NullValueHandling = NullValueHandling.Ignore,
+            DateParseHandling = DateParseHandling.None,
+            ObjectCreationHandling = ObjectCreationHandling.Replace,
+            CheckAdditionalContent = true,
         };
 
         static VariantSourceDatabase()
@@ -175,6 +208,22 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             return TryLoadUncached(assetPath, out document, out error);
+        }
+
+        internal static bool TryLoadForEdit(
+            ScriptableVariant variant,
+            out VariantSourceDocument document,
+            out string assetPath,
+            out string error)
+        {
+            if (!TryLoad(variant, out document, out assetPath, out error))
+            {
+                return false;
+            }
+
+            // Commands must not mutate the read cache before their save succeeds.
+            document = document.Clone();
+            return true;
         }
 
         internal static bool TryLoadUncached(
@@ -228,12 +277,23 @@ namespace DCFApixels.ScriptableVariants.Editor
         internal static string SerializeDocument(VariantSourceDocument document)
         {
             document.Normalize();
-            return JsonConvert.SerializeObject(document, DocumentSettings) + "\n";
+            using (var text = new StringWriter(CultureInfo.InvariantCulture))
+            using (var writer = new JsonTextWriter(text))
+            {
+                // Do not inherit JsonConvert.DefaultSettings from unrelated editor packages.
+                JsonSerializer.Create(DocumentSettings).Serialize(writer, document);
+                writer.Flush();
+                return text.ToString() + "\n";
+            }
         }
 
         internal static VariantSourceDocument DeserializeDocument(string json)
         {
-            return JsonConvert.DeserializeObject<VariantSourceDocument>(json, DocumentSettings);
+            using (var text = new StringReader(json))
+            using (var reader = new JsonTextReader(text))
+            {
+                return JsonSerializer.Create(DocumentSettings).Deserialize<VariantSourceDocument>(reader);
+            }
         }
 
         internal static void Save(
@@ -258,7 +318,7 @@ namespace DCFApixels.ScriptableVariants.Editor
                 throw new IOException($"Variant source is not editable: {assetPath}");
             }
 
-            File.WriteAllText(fullPath, json, new UTF8Encoding(false));
+            WriteSourceAtomically(fullPath, json);
             if (recordUndo)
             {
                 VariantSourceUndo.Record(assetPath, previousJson, json);
@@ -275,6 +335,33 @@ namespace DCFApixels.ScriptableVariants.Editor
             else
             {
                 PendingImports[assetPath] = EditorApplication.timeSinceStartup;
+            }
+        }
+
+        internal static void WriteSourceAtomically(string fullPath, string json)
+        {
+            fullPath = Path.GetFullPath(fullPath);
+            // A sibling keeps replacement on the same filesystem. Unity ignores dot-prefixed files.
+            var temporaryPath = Path.Combine(Path.GetDirectoryName(fullPath),
+                "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+            try
+            {
+                File.WriteAllText(temporaryPath, json, new UTF8Encoding(false));
+                if (File.Exists(fullPath))
+                {
+                    File.Replace(temporaryPath, fullPath, null);
+                }
+                else
+                {
+                    File.Move(temporaryPath, fullPath);
+                }
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
             }
         }
 

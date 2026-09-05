@@ -113,7 +113,7 @@ namespace DCFApixels.ScriptableVariants.Editor
         internal static void SourceSaved(string assetPath)
         {
             var guid = AssetDatabase.AssetPathToGUID(assetPath);
-            if (Sessions.TryGetValue(guid, out var session))
+            if (Sessions.TryGetValue(guid, out var session) && !session._saving)
             {
                 // Header/context actions have already changed the working values. Accept these
                 // before UI bindings observe them, so Revert/Undo cannot create fresh overrides.

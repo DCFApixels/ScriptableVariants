@@ -4,6 +4,18 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Fixed native curve/gradient field discovery and added lossless `Bounds` value serialization.
+- Preserved gradient color space and date-looking strings; nested collections now replace
+  constructor defaults without appending duplicate elements during deserialization.
+- Read `[FormerlySerializedAs]` aliases inside nested JSON values and collection elements.
+- Added explicit recursive-inline-schema validation and cached local field paths.
+- Isolated source-document JSON settings from other packages and rejected trailing JSON content.
+- Made source commands edit detached documents and replace individual source files atomically.
+- Registered parent source dependencies before validation can fail on missing or broken parents.
+- Removed duplicate post-save snapshots, quadratic override-ancestor scans, and reflection-based
+  changes to unrelated Inspector context menus.
+- Added regression coverage for serialization, schema validation, source isolation, and atomic writes.
+- Bumped the scripted importer revision so existing outputs use the corrected serialization after reload.
 - Replaced embedded `.asset` inheritance metadata with the dedicated `.svariant` source format.
 - Reduced the runtime API to the non-generic `ScriptableVariant` marker and `VariantLocalAttribute`.
 - Added a scripted importer that publishes flat, concrete ScriptableObjects for runtime and

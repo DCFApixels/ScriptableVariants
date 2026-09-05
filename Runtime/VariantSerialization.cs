@@ -13,6 +13,7 @@ namespace DCFApixels.ScriptableVariants
     {
         private static readonly Dictionary<Type, FieldInfo[]> FieldsCache = new Dictionary<Type, FieldInfo[]>();
         private static readonly Dictionary<Type, FieldInfo[]> RootFieldsCache = new Dictionary<Type, FieldInfo[]>();
+        private static readonly Dictionary<Type, string[]> LocalPathsCache = new Dictionary<Type, string[]>();
         private static readonly MethodInfo MemberwiseCloneMethod = typeof(object).GetMethod(
             "MemberwiseClone",
             BindingFlags.Instance | BindingFlags.NonPublic);
@@ -52,6 +53,8 @@ namespace DCFApixels.ScriptableVariants
             ScriptableVariant child,
             HashSet<string> overridePaths)
         {
+            // Validate inline schemas before recursively merging their values.
+            GetLocalPaths(child.GetType());
             var cloneContext = new Dictionary<object, object>(ObjectReferenceComparer.Instance);
             var fields = GetRootFields(child.GetType());
             for (var i = 0; i < fields.Length; i++)
@@ -250,9 +253,19 @@ namespace DCFApixels.ScriptableVariants
 
         internal static string[] GetLocalPaths(Type rootType)
         {
-            var result = new List<string>();
-            CollectLocalPaths(GetRootFields(rootType), string.Empty, result);
-            return result.ToArray();
+            lock (CacheLock)
+            {
+                if (LocalPathsCache.TryGetValue(rootType, out var cached))
+                {
+                    return cached;
+                }
+
+                var result = new List<string>();
+                CollectLocalPaths(GetRootFields(rootType), string.Empty, result, new HashSet<Type> {rootType});
+                cached = result.ToArray();
+                LocalPathsCache.Add(rootType, cached);
+                return cached;
+            }
         }
 
         private static object MergeField(
@@ -356,6 +369,7 @@ namespace DCFApixels.ScriptableVariants
                 var clone = new Gradient
                 {
                     mode = gradient.mode,
+                    colorSpace = gradient.colorSpace,
                 };
                 clone.SetKeys(gradient.colorKeys, gradient.alphaKeys);
                 visited[value] = clone;
@@ -491,6 +505,12 @@ namespace DCFApixels.ScriptableVariants
             }
 
             if (typeof(Object).IsAssignableFrom(type))
+            {
+                return true;
+            }
+
+            // Unity serializes these native classes even though they do not have [Serializable].
+            if (type == typeof(AnimationCurve) || type == typeof(Gradient))
             {
                 return true;
             }
@@ -716,7 +736,8 @@ namespace DCFApixels.ScriptableVariants
         private static void CollectLocalPaths(
             FieldInfo[] fields,
             string prefix,
-            List<string> result)
+            List<string> result,
+            HashSet<Type> ancestors)
         {
             for (var i = 0; i < fields.Length; i++)
             {
@@ -730,7 +751,15 @@ namespace DCFApixels.ScriptableVariants
 
                 if (!field.IsDefined(typeof(SerializeReference), true) && IsInlineComposite(field.FieldType))
                 {
-                    CollectLocalPaths(GetSerializableFields(field.FieldType), path, result);
+                    if (!ancestors.Add(field.FieldType))
+                    {
+                        throw new InvalidOperationException(
+                            $"Recursive inline field '{path}' is not supported by Scriptable Variants. " +
+                            "Use [SerializeReference] for recursive data graphs.");
+                    }
+
+                    CollectLocalPaths(GetSerializableFields(field.FieldType), path, result, ancestors);
+                    ancestors.Remove(field.FieldType);
                 }
             }
         }

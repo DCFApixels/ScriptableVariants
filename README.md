@@ -104,14 +104,28 @@ this call.
 
 ## Serialization boundaries
 
-- Public fields and private `[SerializeField]` fields follow Unity's serialization rules.
+- Public fields and private `[SerializeField]` fields are discovered automatically. Coverage of all
+  Unity-serialized native and framework types is not yet guaranteed.
 - Inline `[Serializable]` classes and structs support leaf overrides.
 - Arrays and `List<T>` are overridden as one collection.
 - `[SerializeReference]` values are overridden as one managed-reference graph.
+- `[VariantLocal]` is supported on root and inline fields; fields inside an atomic collection or
+  managed-reference value do not have independent local-only semantics.
 - Unity asset references are stored by `GlobalObjectId` and registered as import dependencies.
-- `AnimationCurve` and `Gradient` have dedicated value serialization.
+- `AnimationCurve`, `Gradient` (including color space), and `Bounds` have dedicated value serialization.
 - Fields renamed with `[FormerlySerializedAs]` are remapped during import.
+- Former field names are also accepted inside inline values and collection elements; saving writes
+  the current names. Date-looking strings are kept as strings, and nested collections replace
+  constructor defaults instead of appending to them.
+- Recursive inline type schemas are rejected with an error. Use `[SerializeReference]` for recursive
+  graphs; shared managed references across separate stored fields are not currently preserved.
 - Parent and child assets must have exactly the same concrete type, and cycles are rejected.
+
+Source commands edit a detached document and replace each source file atomically after writing a
+temporary sibling file. This protects an existing file from partial writes, but **Apply to Parent**
+is not yet a transaction across both source files. Conflict handling for external edits and recovery
+of unresolved references also remain limitations of this experimental branch. Only import trusted
+`.svariant` files; polymorphic JSON types are not restricted to a security allowlist.
 
 Regular `.asset` instances created by older package versions are not `.svariant` sources and do
 not participate in the new inheritance system. Keep backups while evaluating this breaking format

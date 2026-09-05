@@ -42,7 +42,7 @@ namespace DCFApixels.ScriptableVariants.Editor
         internal static bool SetParent(ScriptableVariant variant, ScriptableVariant parent, out string error)
         {
             if (!CanAssignParent(variant, parent, out error) ||
-                !VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out error))
+                !VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out error))
             {
                 return false;
             }
@@ -148,7 +148,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
             var parent = GetParent(variant);
             if (parent == null ||
-                !VariantSourceDatabase.TryLoad(parent, out var parentDocument, out var parentPath, out _))
+                !VariantSourceDatabase.TryLoadForEdit(parent, out var parentDocument, out var parentPath, out _))
             {
                 return false;
             }
@@ -205,7 +205,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static void RevertAll(ScriptableVariant variant)
         {
-            if (!VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out _) ||
+            if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out _) ||
                 string.IsNullOrEmpty(document.ParentGuid))
             {
                 return;
@@ -226,7 +226,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static void OverrideAll(ScriptableVariant variant)
         {
-            if (!VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out _) ||
+            if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out _) ||
                 string.IsNullOrEmpty(document.ParentGuid))
             {
                 return;
@@ -239,7 +239,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static void Flatten(ScriptableVariant variant)
         {
-            if (!VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out _) ||
+            if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out _) ||
                 string.IsNullOrEmpty(document.ParentGuid))
             {
                 return;
@@ -253,7 +253,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static void RemoveOrphanOverrides(ScriptableVariant variant)
         {
-            if (!VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out _))
+            if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out _))
             {
                 return;
             }
@@ -271,7 +271,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static void NotifyValuesChanged(ScriptableVariant variant, string propertyPath = null)
         {
-            if (!VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out _))
+            if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out _))
             {
                 return;
             }
@@ -312,7 +312,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static void SaveWorkingCopy(ScriptableVariant variant, ScriptableVariant baseline)
         {
-            if (!VariantSourceDatabase.TryLoad(variant, out var document, out var assetPath, out var error))
+            if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out var error))
             {
                 throw new InvalidOperationException(error);
             }
@@ -525,7 +525,7 @@ namespace DCFApixels.ScriptableVariants.Editor
         {
             if (variant == null || string.IsNullOrEmpty(propertyPath) ||
                 !VariantSerialization.IsKnownPath(variant.GetType(), propertyPath) ||
-                !VariantSourceDatabase.TryLoad(variant, out document, out assetPath, out _))
+                !VariantSourceDatabase.TryLoadForEdit(variant, out document, out assetPath, out _))
             {
                 document = null;
                 assetPath = null;
@@ -543,6 +543,7 @@ namespace DCFApixels.ScriptableVariants.Editor
                 throw new ArgumentException("Type must be a concrete ScriptableVariant.", nameof(variantType));
             }
 
+            VariantSerialization.GetLocalPaths(variantType);
             defaults = ScriptableObject.CreateInstance(variantType) as ScriptableVariant;
             var script = defaults != null ? MonoScript.FromScriptableObject(defaults) : null;
             var scriptPath = script != null ? AssetDatabase.GetAssetPath(script) : null;
