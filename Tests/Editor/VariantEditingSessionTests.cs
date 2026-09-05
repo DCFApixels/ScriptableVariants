@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using DCFApixels.ScriptableVariants.Editor;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -52,6 +53,31 @@ namespace DCFApixels.ScriptableVariants.Tests
             {
                 Object.DestroyImmediate(editor);
             }
+        }
+
+        [Test]
+        public void TriWorkingCopyUsesAssetSemanticsAndNestedNativeDecoratorsHaveOneOwner()
+        {
+            var asset = Create("TriContext");
+            var path = AssetDatabase.GetAssetPath(asset);
+            using var session = VariantEditingSession.Acquire(path);
+            using (var serialized = new SerializedObject(session.WorkingCopy))
+                serialized.FindProperty("_nested").isExpanded = true;
+            var editor = UnityEditor.Editor.CreateEditor(AssetImporter.GetAtPath(path));
+            try
+            {
+                var root = new InspectorElement(editor);
+                var tree = editor.GetType().GetField("_tree", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(editor);
+                Assert.That(tree, Is.Not.Null);
+                Assert.That(tree.GetType().GetProperty("TargetIsPersistent").GetValue(tree), Is.True);
+                var elements = root.Query<VisualElement>().ToList();
+                Assert.That(elements.Any(element => element.GetType().Name == "VariantOverrideVisualElement" &&
+                    (string)element.GetType().GetField("_propertyPath", BindingFlags.Instance | BindingFlags.NonPublic)
+                        .GetValue(element) == "_nested._amount"), Is.True, "Nested fields need their own override marker.");
+                Assert.That(root.Query<VisualElement>(className: "scriptable-variant-decorator").ToList(), Is.Empty,
+                    "Min/TextArea select native fields; Unity, not a second Tri wrapper, must draw their headers (including VariantLocal).");
+            }
+            finally { Object.DestroyImmediate(editor); }
         }
 
         [Test]

@@ -4,6 +4,32 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Fixed Assets/Create/Scriptable Variant silently doing nothing without an IMGUI event; type
+  selection now uses a UI Toolkit utility window and displays creation errors in the window.
+- Added format 3 with numeric arrays for Vector2/3/4, Vector2Int/3Int, Quaternion, Color and Color32,
+  including nested/collection values, Bounds vectors and gradient color keys. Quaternion components
+  are preserved without normalization. Only format 3 is supported; no legacy readers or migration.
+- Updated the demo sources to format 3 without changing their values, overrides or asset identities.
+- Attached cached typed numeric converters directly to contracts, avoiding component reflection
+  and temporary numeric arrays; preserved float precision/HDR and Color32 byte values.
+- Added regression cases for rejected legacy formats, component order/count, integer ranges,
+  locale-independent float round trips, non-finite floats, raw quaternions, collections, Bounds and gradients.
+- Added a document-wide managed-reference graph without rewriting assets during import.
+- Restricted polymorphic JSON types to the loaded data schema and rejected malformed documents,
+  missing references/overrides, duplicate keys, and unsupported empty native contracts.
+- Added integer-vector and native-offset serialization, subasset fallback resolution and
+  working-copy self-reference remapping.
+- Added exact-revision conflict checks and journaled multi-source writes with rollback/recovery
+  for Apply to Parent and source Undo; post-commit Editor errors no longer masquerade as failed writes.
+- Retained failed editing sessions and added durable recovery snapshots, explicit retry/discard
+  controls, and confirmed orphan removal that keeps other pending edits.
+- Debounced source saves, bounded document caches and centralized source checks. Reused parent
+  import artifacts and iterative temporary resolution instead of recursively allocating ancestors.
+- Added nested Tri override markers and event-driven marker/style refresh. Routed Header/Space
+  through a single decorator owner and isolated a checked Tri persistent-target adapter.
+- Rejected unsupported VariantLocal declarations inside atomic values rather than ignoring them.
+- Added hardening regression tests. Unity compilation, execution and performance measurements
+  are still pending manual verification on this branch.
 - Fixed native curve/gradient field discovery and added lossless `Bounds` value serialization.
 - Preserved gradient color space and date-looking strings; nested collections now replace
   constructor defaults without appending duplicate elements during deserialization.

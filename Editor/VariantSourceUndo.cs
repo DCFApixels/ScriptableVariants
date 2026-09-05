@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -44,16 +45,14 @@ namespace DCFApixels.ScriptableVariants.Editor
                 state = CreateInstance<VariantSourceUndo>();
                 state.hideFlags = HideFlags.HideAndDontSave;
                 state._guid = guid;
-                state._json = VariantSourceDatabase.SerializeDocument(
-                    VariantSourceDatabase.DeserializeDocument(previousJson));
+                state._json = previousJson;
                 States[guid] = state;
             }
             else if (!string.Equals(state._appliedJson, previousJson, StringComparison.Ordinal))
             {
                 // External source edits start a new history instead of Undo restoring stale JSON.
                 Undo.ClearUndo(state);
-                state._json = VariantSourceDatabase.SerializeDocument(
-                    VariantSourceDatabase.DeserializeDocument(previousJson));
+                state._json = previousJson;
             }
 
             Undo.RegisterCompleteObjectUndo(state, "Edit Scriptable Variant");
@@ -63,42 +62,51 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         private static void RestoreSources()
         {
-            foreach (var state in States.Values)
+            var changed = States.Values.Where(state => state != null &&
+                !string.Equals(state._json, state._appliedJson, StringComparison.Ordinal)).ToArray();
+            var paths = new List<string>();
+            var documents = new List<VariantSourceDocument>();
+            try
             {
-                if (state == null || string.Equals(state._json, state._appliedJson, StringComparison.Ordinal))
+                foreach (var state in changed)
                 {
-                    continue;
-                }
-
-                var path = AssetDatabase.GUIDToAssetPath(state._guid);
-                if (string.IsNullOrEmpty(path) || !File.Exists(FileUtil.GetPhysicalPath(path)))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    if (!string.Equals(File.ReadAllText(FileUtil.GetPhysicalPath(path)),
-                            state._appliedJson, StringComparison.Ordinal))
-                    {
-                        // Never overwrite a newer external edit when undoing an old Inspector edit.
-                        Undo.ClearUndo(state);
-                        state._json = state._appliedJson = File.ReadAllText(FileUtil.GetPhysicalPath(path));
-                        continue;
-                    }
-
+                    var path = AssetDatabase.GUIDToAssetPath(state._guid);
+                    if (string.IsNullOrEmpty(path)) throw new IOException("An Undo source was deleted.");
+                    VariantSourceDatabase.AssertRevision(path, state._appliedJson);
                     var document = VariantSourceDatabase.DeserializeDocument(state._json);
-                    VariantSourceDatabase.Save(path, document, recordUndo: false);
-                    state._appliedJson = VariantSourceDatabase.SerializeDocument(document);
+                    document.SourceJson = state._appliedJson;
+                    paths.Add(path);
+                    documents.Add(document);
                 }
-                catch (Exception exception)
+                VariantSourceDatabase.SaveBatch(paths, documents, recordUndo: false);
+                for (var i = 0; i < changed.Length; i++)
+                    changed[i]._appliedJson = changed[i]._json = VariantSourceDatabase.SerializeDocument(documents[i]);
+            }
+            catch (Exception exception)
+            {
+                // Reject the entire Undo batch, not just the conflicted half of Apply to Parent.
+                foreach (var state in changed)
                 {
-                    Debug.LogError($"Could not restore variant source '{path}': {exception.Message}");
+                    Undo.ClearUndo(state);
+                    state._json = state._appliedJson;
                 }
+                Debug.LogError($"Could not restore variant source transaction: {exception.Message}");
             }
 
             // Finish restoring every source first (Apply to Parent changes two files).
             VariantEditingSession.ReloadOpenSessions();
+        }
+
+        internal static void PruneDeletedSources()
+        {
+            foreach (var pair in States.ToArray())
+            {
+                if (!string.IsNullOrEmpty(AssetDatabase.GUIDToAssetPath(pair.Key))) continue;
+                States.Remove(pair.Key);
+                if (pair.Value == null) continue;
+                Undo.ClearUndo(pair.Value);
+                DestroyImmediate(pair.Value);
+            }
         }
     }
 }

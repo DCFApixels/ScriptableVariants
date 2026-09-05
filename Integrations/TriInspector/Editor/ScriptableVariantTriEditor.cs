@@ -52,11 +52,23 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 _workingEditor.CreateView = CreateWorkingInspectorGUI;
                 _workingObject = _workingEditor.serializedObject;
                 _session.Reloaded += RefreshAfterHeaderAction;
+                _session.StateChanged += Repaint;
                 Undo.undoRedoPerformed += RefreshAfterHeaderAction;
             }
             catch (Exception exception)
             {
                 _parentError = exception.Message;
+                if (_workingEditor != null) DestroyImmediate(_workingEditor);
+                _workingEditor = null;
+                _workingObject = null;
+                if (_session != null)
+                {
+                    _session.Reloaded -= RefreshAfterHeaderAction;
+                    _session.StateChanged -= Repaint;
+                    _session.Dispose();
+                    _session = null;
+                }
+                _variant = null;
             }
         }
 
@@ -88,6 +100,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             if (_session != null)
             {
                 _session.Reloaded -= RefreshAfterHeaderAction;
+                _session.StateChanged -= Repaint;
                 _session.Dispose();
                 _session = null;
             }
@@ -165,17 +178,31 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
         private void DrawWarnings()
         {
-            if (!string.IsNullOrEmpty(_parentError))
+            var error = _session?.Error ?? _parentError;
+            if (!string.IsNullOrEmpty(error))
             {
-                EditorGUILayout.HelpBox(_parentError, MessageType.Error);
+                EditorGUILayout.HelpBox(error, MessageType.Error);
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Retry Save")) RunEdit(() => { });
+                    if (GUILayout.Button("Reload from Source") && EditorUtility.DisplayDialog(
+                            "Discard pending variant edits?",
+                            "This replaces the Inspector's unsaved values with the current source. The source file is not changed.",
+                            "Discard and Reload", "Cancel"))
+                    {
+                        _session?.ReloadDiscardingChanges();
+                        _parentError = null;
+                    }
+                }
             }
 
             var orphans = ScriptableVariantAssetUtility.GetOrphanOverrides(_variant);
             if (orphans.Length > 0)
             {
                 EditorGUILayout.HelpBox(
-                    "Unknown override paths: " + string.Join(", ", orphans),
+                    "Unknown stored paths: " + string.Join(", ", orphans),
                     MessageType.Warning);
+                if (GUILayout.Button("Remove Orphan Data...")) RemoveOrphans();
             }
         }
 
@@ -203,9 +230,18 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
         {
             DisposeTree();
             _root = new VisualElement();
-            _tree = new TriPropertyTreeForSerializedObject(_workingObject);
-            _tree.Update(true);
-            _tree.RunValidation();
+            try
+            {
+                _tree = VariantTriPropertyTree.Create(_workingObject);
+                _tree.Update(true);
+                _tree.RunValidation();
+            }
+            catch (Exception exception)
+            {
+                DisposeTree();
+                _session.ReportError(exception.Message);
+                return new HelpBox(exception.Message, HelpBoxMessageType.Error);
+            }
             _tree.RootProperty.ChildValueChanged += OnValuesChanged;
 
             if (!_tree.RootProperty.TryGetAttribute(out HideMonoScriptAttribute _))
@@ -217,6 +253,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             }
 
             _root.Add(_tree.GetRootElement());
+            _root.RegisterCallback<GeometryChangedEvent>(_ => ConfigureAssetFields());
+            _root.schedule.Execute(ConfigureAssetFields);
             _root.TrackSerializedObjectValue(_workingObject, _ => OnValuesChanged(null));
             _update = _root.schedule.Execute(() =>
             {
@@ -224,6 +262,11 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 _tree.RunValidationIfRequired();
             }).Every(100);
             return _root;
+        }
+
+        private void ConfigureAssetFields()
+        {
+            _root?.Query<ObjectField>().ForEach(field => field.allowSceneObjects = false);
         }
 
         private void OnValuesChanged(TriProperty property)
@@ -235,7 +278,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
             try
             {
-                _session.CommitValues();
+                _session.RequestCommit();
                 _parentError = null;
             }
             catch (Exception exception)
@@ -308,7 +351,11 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
         private void RemoveOrphans()
         {
-            RunEdit(() => ScriptableVariantAssetUtility.RemoveOrphanOverrides(_variant));
+            if (EditorUtility.DisplayDialog("Remove orphan variant data?",
+                    "These stored fields no longer exist in the script and will be removed:\n" +
+                    string.Join(", ", ScriptableVariantAssetUtility.GetOrphanOverrides(_variant)) +
+                    "\nOther pending field edits will be saved. This action supports Undo.", "Remove", "Cancel"))
+                RunEdit(() => _session.RemoveOrphans(), false);
         }
 
         private void RefreshAfterHeaderAction()
@@ -326,12 +373,12 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             }
         }
 
-        private void RunEdit(Action edit)
+        private void RunEdit(Action edit, bool commitPending = true)
         {
             try
             {
                 _tree?.ApplyChanges();
-                _session.CommitValues();
+                if (commitPending) _session.CommitValues();
                 edit();
                 _parentError = null;
             }

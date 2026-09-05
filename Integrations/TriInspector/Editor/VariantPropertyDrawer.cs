@@ -15,9 +15,6 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 {
     public sealed class VariantPropertyDrawer : TriAttributeDrawer<VariantPropertyAttribute>
     {
-        private const string TriHeaderWrapperTypeName = "TriInspector.Drawers.HeaderDrawer+TriHeader";
-        private const string TriSpaceWrapperTypeName = "TriInspector.Drawers.SpaceDrawer+TriSpace";
-
         public override VisualElement CreateVisualElement(TriProperty property, VisualElement next)
         {
             if (!typeof(ScriptableVariant).IsAssignableFrom(property.PropertyTree.TargetObjectType) ||
@@ -27,8 +24,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 return next;
             }
 
-            next = RemoveDuplicateUnityDecorators(property, next);
-            if (IsVariantLocal(property))
+            if (IsVariantLocal(property) || !string.IsNullOrEmpty(VariantSerialization.GetLocalControllerPath(
+                    property.PropertyTree.TargetObjectType, property.PropertyPath)))
             {
                 return next;
             }
@@ -43,94 +40,15 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                    field.IsDefined(typeof(VariantLocalAttribute), true);
         }
 
-        private static VisualElement RemoveDuplicateUnityDecorators(TriProperty property, VisualElement root)
+        internal static TriBuiltInPropertyVisualElement FindNativePropertyField(VisualElement root, string path)
         {
-            var nativePropertyField = FindNativePropertyField(root, property.PropertyPath);
-            if (nativePropertyField == null)
+            if (root is TriBuiltInPropertyVisualElement field && field.bindingPath == path) return field;
+            for (var i = 0; i < root.childCount; i++)
             {
-                return root;
+                var found = FindNativePropertyField(root.ElementAt(i), path);
+                if (found != null) return found;
             }
-
-            return StripTriUnityDecoratorWrappers(root, nativePropertyField);
-        }
-
-        private static TriBuiltInPropertyVisualElement FindNativePropertyField(
-            VisualElement root,
-            string propertyPath)
-        {
-            if (root is TriBuiltInPropertyVisualElement rootPropertyField &&
-                rootPropertyField.bindingPath == propertyPath)
-            {
-                return rootPropertyField;
-            }
-
-            var propertyFields = root.Query<TriBuiltInPropertyVisualElement>().ToList();
-            for (var i = 0; i < propertyFields.Count; i++)
-            {
-                if (propertyFields[i].bindingPath == propertyPath)
-                {
-                    return propertyFields[i];
-                }
-            }
-
             return null;
-        }
-
-        private static VisualElement StripTriUnityDecoratorWrappers(
-            VisualElement element,
-            TriBuiltInPropertyVisualElement nativePropertyField)
-        {
-            if (ReferenceEquals(element, nativePropertyField))
-            {
-                return element;
-            }
-
-            if (IsTriUnityDecoratorWrapper(element))
-            {
-                for (var i = element.childCount - 1; i >= 0; i--)
-                {
-                    var content = element.ElementAt(i);
-                    if (!IsOrContains(content, nativePropertyField))
-                    {
-                        continue;
-                    }
-
-                    content.RemoveFromHierarchy();
-                    return StripTriUnityDecoratorWrappers(content, nativePropertyField);
-                }
-            }
-
-            for (var i = element.childCount - 1; i >= 0; i--)
-            {
-                var child = element.ElementAt(i);
-                if (!IsOrContains(child, nativePropertyField))
-                {
-                    continue;
-                }
-
-                var normalizedChild = StripTriUnityDecoratorWrappers(child, nativePropertyField);
-                if (ReferenceEquals(child, normalizedChild))
-                {
-                    break;
-                }
-
-                element.RemoveAt(i);
-                element.Insert(i, normalizedChild);
-                break;
-            }
-
-            return element;
-        }
-
-        private static bool IsOrContains(VisualElement root, VisualElement descendant)
-        {
-            return ReferenceEquals(root, descendant) || root.Contains(descendant);
-        }
-
-        private static bool IsTriUnityDecoratorWrapper(VisualElement element)
-        {
-            var typeName = element.GetType().FullName;
-            return typeName == TriHeaderWrapperTypeName || typeName == TriSpaceWrapperTypeName;
         }
 
         private static bool IsInsideAtomicProperty(TriProperty property)
@@ -164,6 +82,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
             private readonly Dictionary<TextElement, StyleEnum<FontStyle>> _originalFontStyles =
                 new Dictionary<TextElement, StyleEnum<FontStyle>>();
             private VisualElement _propertyRow;
+            private readonly VariantEditingSession _session;
+            private bool _isBold;
 
             public VariantOverrideVisualElement(TriProperty property, VisualElement next)
             {
@@ -173,6 +93,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     : null;
                 _propertyPath = property.PropertyPath;
                 _next = next;
+                VariantEditingSession.TryGetSession(_variant, out _session);
 
                 style.flexDirection = FlexDirection.Row;
                 style.alignItems = Align.FlexStart;
@@ -207,8 +128,22 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                 Add(_overrideHitArea);
                 Add(_next);
 
-                _next.RegisterCallback<GeometryChangedEvent>(_ => UpdateOverridePosition());
-                this.PeriodicRun(Refresh);
+                _next.RegisterCallback<GeometryChangedEvent>(_ =>
+                {
+                    var bold = _isBold;
+                    UpdateOverridePosition();
+                    SetOverrideTextBold(bold);
+                });
+                RegisterCallback<AttachToPanelEvent>(_ =>
+                {
+                    if (_session != null) _session.StateChanged += Refresh;
+                    Refresh();
+                });
+                RegisterCallback<DetachFromPanelEvent>(_ =>
+                {
+                    if (_session != null) _session.StateChanged -= Refresh;
+                    SetOverrideTextBold(false);
+                });
                 Refresh();
             }
 
@@ -219,8 +154,17 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     return;
                 }
 
-                _property.PropertyTree.ApplyChanges();
-                VariantEditingSession.CommitValues(_variant);
+                try
+                {
+                    _property.PropertyTree.ApplyChanges();
+                    VariantEditingSession.CommitValues(_variant);
+                }
+                catch (System.Exception exception)
+                {
+                    _session?.ReportError(exception.Message);
+                    evt.StopPropagation();
+                    return;
+                }
                 ScriptableVariantContextMenu.Populate(
                     evt.menu,
                     _variant,
@@ -291,7 +235,8 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
                     return;
                 }
 
-                if (_propertyRow == null || _propertyRow.panel == null || !_next.Contains(_propertyRow))
+                if (_propertyRow == null || _propertyRow.panel == null ||
+                    !ReferenceEquals(_next, _propertyRow) && !_next.Contains(_propertyRow))
                 {
                     SetOverrideTextBold(false);
                     _propertyRow = FindPropertyRow();
@@ -318,6 +263,7 @@ namespace DCFApixels.ScriptableVariants.TriInspector.Editor
 
             private void SetOverrideTextBold(bool bold)
             {
+                _isBold = bold;
                 if (!bold)
                 {
                     foreach (var pair in _originalFontStyles)

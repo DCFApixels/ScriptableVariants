@@ -34,7 +34,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             {
                 menu.AppendAction(
                     "Override Property",
-                    _ => Execute(
+                    _ => Execute(variant,
                         () => ScriptableVariantAssetUtility.SetOverride(variant, propertyPath, true),
                         afterChange),
                     DropdownMenuAction.AlwaysEnabled);
@@ -43,13 +43,13 @@ namespace DCFApixels.ScriptableVariants.Editor
 
             menu.AppendAction(
                 "Apply to Parent",
-                _ => Execute(
-                    () => ScriptableVariantAssetUtility.ApplyToParent(variant, propertyPath),
+                _ => Execute(variant,
+                    () => ApplyToParent(variant, propertyPath),
                     afterChange),
                 DropdownMenuAction.AlwaysEnabled);
             menu.AppendAction(
                 "Revert",
-                _ => Execute(
+                _ => Execute(variant,
                     () => ScriptableVariantAssetUtility.Revert(variant, propertyPath),
                     afterChange),
                 DropdownMenuAction.AlwaysEnabled);
@@ -71,7 +71,7 @@ namespace DCFApixels.ScriptableVariants.Editor
                 menu.AddItem(
                     OverridePropertyLabel,
                     false,
-                    () => Execute(
+                    () => Execute(variant,
                         () => ScriptableVariantAssetUtility.SetOverride(variant, propertyPath, true),
                         null));
                 return;
@@ -80,13 +80,13 @@ namespace DCFApixels.ScriptableVariants.Editor
             menu.AddItem(
                 ApplyToParentLabel,
                 false,
-                () => Execute(
-                    () => ScriptableVariantAssetUtility.ApplyToParent(variant, propertyPath),
+                () => Execute(variant,
+                    () => ApplyToParent(variant, propertyPath),
                     null));
             menu.AddItem(
                 RevertLabel,
                 false,
-                () => Execute(
+                () => Execute(variant,
                     () => ScriptableVariantAssetUtility.Revert(variant, propertyPath),
                     null));
         }
@@ -98,10 +98,25 @@ namespace DCFApixels.ScriptableVariants.Editor
                    VariantSerialization.IsKnownPath(variant.GetType(), propertyPath);
         }
 
-        private static void Execute(Action action, Action afterChange)
+        private static void ApplyToParent(ScriptableVariant variant, string propertyPath)
         {
-            action();
-            afterChange?.Invoke();
+            if (!ScriptableVariantAssetUtility.ApplyToParent(variant, propertyPath))
+                throw new InvalidOperationException("Could not apply this override. Check that the parent is available and the field still exists.");
+        }
+
+        private static void Execute(ScriptableVariant variant, Action action, Action afterChange)
+        {
+            try
+            {
+                VariantEditingSession.CommitValues(variant);
+                action();
+                afterChange?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                if (VariantEditingSession.TryGetSession(variant, out var session)) session.ReportError(exception.Message);
+                else Debug.LogError(exception.Message);
+            }
             InternalEditorUtility.RepaintAllViews();
         }
     }

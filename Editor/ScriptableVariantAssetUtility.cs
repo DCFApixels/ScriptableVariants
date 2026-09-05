@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -8,6 +9,59 @@ namespace DCFApixels.ScriptableVariants.Editor
 {
     public static class ScriptableVariantAssetUtility
     {
+        private static readonly HashSet<Type> ValidatedSchemas = new HashSet<Type>();
+
+        internal static void CopyEditingValues(ScriptableVariant source, ScriptableVariant destination)
+        {
+            EditorUtility.CopySerialized(source, destination);
+            // CopySerialized preserves object references literally. A reference to the temporary
+            // source must follow the stable working object, not be destroyed with the snapshot.
+            using var serialized = new SerializedObject(destination);
+            var iterator = serialized.GetIterator();
+            var visited = new HashSet<long>();
+            var enterChildren = true;
+            while (iterator.Next(enterChildren))
+            {
+                enterChildren = iterator.propertyType != SerializedPropertyType.ManagedReference ||
+                    visited.Add(iterator.managedReferenceId);
+                if (iterator.propertyType == SerializedPropertyType.ObjectReference && iterator.objectReferenceValue == source)
+                    iterator.objectReferenceValue = destination;
+            }
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        internal static void ValidateUnityFields(ScriptableVariant variant)
+        {
+            var type = variant.GetType();
+            if (ValidatedSchemas.Contains(type)) return;
+            using (var serialized = new SerializedObject(variant))
+            {
+                var fields = VariantSerialization.GetRootFields(type);
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var field in fields)
+                {
+                    if (!names.Add(field.Name))
+                        throw new NotSupportedException($"Duplicate serialized field '{field.Name}' in '{type.FullName}'.");
+                    if (serialized.FindProperty(field.Name) == null)
+                        throw new NotSupportedException($"Field '{type.Name}.{field.Name}' is not serialized by Unity. " +
+                            "Use a supported data type or mark it [NonSerialized].");
+                }
+                var iterator = serialized.GetIterator();
+                var enterChildren = true;
+                while (iterator.Next(enterChildren))
+                {
+                    enterChildren = false;
+                    if (names.Contains(iterator.name)) continue;
+                    // Ignore Unity's own native metadata, but do not silently omit a user field
+                    // that Unity supports and the reflection schema failed to discover.
+                    for (var owner = type; owner != typeof(ScriptableVariant); owner = owner.BaseType)
+                        if (owner.GetField(iterator.name, BindingFlags.Instance | BindingFlags.Public |
+                                BindingFlags.NonPublic | BindingFlags.DeclaredOnly) != null)
+                            throw new NotSupportedException($"Unity field '{type.Name}.{iterator.name}' has no supported variant schema.");
+                }
+            }
+            ValidatedSchemas.Add(type);
+        }
         public static ScriptableVariant EnsureResolved(ScriptableVariant variant)
         {
             if (!IsVariantAsset(variant))
@@ -65,6 +119,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             using var parentSession = VariantEditingSession.Acquire(VariantEditingSession.GetAssetPath(parent));
+            parentSession.CommitValues();
             parent = parentSession.WorkingCopy;
             var differingPaths = GetDifferingOverridePaths(variant, parent);
             var overrides = new HashSet<string>(document.OverridePaths, StringComparer.Ordinal);
@@ -78,8 +133,10 @@ namespace DCFApixels.ScriptableVariants.Editor
             document.Normalize();
             CaptureDocumentState(document, variant, true);
 
+            using var edit = new WorkingEdit(variant);
             VariantSerialization.ApplyParent(parent, variant, overrides);
             VariantSourceDatabase.Save(assetPath, document);
+            edit.Complete();
             error = null;
             return true;
         }
@@ -126,17 +183,20 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             var parent = GetParent(variant);
+            using var edit = new WorkingEdit(variant);
             if (parent != null)
             {
                 using var parentSession = VariantEditingSession.Acquire(VariantEditingSession.GetAssetPath(parent));
+                parentSession.CommitValues();
                 VariantSerialization.ApplyParent(
                     parentSession.WorkingCopy,
                     variant,
                     new HashSet<string>(document.OverridePaths, StringComparer.Ordinal));
             }
 
-            PruneValues(document, variant.GetType(), true);
+            CaptureDocumentState(document, variant, true);
             VariantSourceDatabase.Save(assetPath, document);
+            edit.Complete();
         }
 
         internal static bool ApplyToParent(ScriptableVariant variant, string propertyPath)
@@ -160,7 +220,11 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             using var parentSession = VariantEditingSession.Acquire(parentPath);
+            parentSession.CommitValues();
             parent = parentSession.WorkingCopy;
+            if (!VariantSourceDatabase.TryLoadForEdit(parent, out parentDocument, out parentPath, out var loadError))
+                throw new InvalidOperationException(loadError);
+            using var edit = new WorkingEdit(parent, variant);
             for (var i = 0; i < affected.Length; i++)
             {
                 if (!VariantSerialization.CanCopyPathValue(variant, parent, affected[i]))
@@ -169,16 +233,11 @@ namespace DCFApixels.ScriptableVariants.Editor
                 }
             }
 
-            var copied = new List<string>(affected.Length);
+            if (!VariantSerialization.CopyPaths(variant, parent, affected)) return false;
+            var copied = new List<string>(affected);
             for (var i = 0; i < affected.Length; i++)
             {
                 var path = affected[i];
-                if (!VariantSerialization.CopyPathValue(variant, parent, path))
-                {
-                    continue;
-                }
-
-                copied.Add(path);
                 if (!string.IsNullOrEmpty(parentDocument.ParentGuid))
                 {
                     AddOverridePath(parentDocument, path);
@@ -198,8 +257,8 @@ namespace DCFApixels.ScriptableVariants.Editor
             }
 
             CaptureDocumentState(childDocument, variant, true);
-            VariantSourceDatabase.Save(parentPath, parentDocument);
-            VariantSourceDatabase.Save(childPath, childDocument);
+            VariantSourceDatabase.SaveBatch(new[] {parentPath, childPath}, new[] {parentDocument, childDocument});
+            edit.Complete();
             return true;
         }
 
@@ -213,15 +272,18 @@ namespace DCFApixels.ScriptableVariants.Editor
 
             document.OverridePaths.Clear();
             var parent = GetParent(variant);
+            using var edit = new WorkingEdit(variant);
             if (parent != null)
             {
                 using var parentSession = VariantEditingSession.Acquire(VariantEditingSession.GetAssetPath(parent));
+                parentSession.CommitValues();
                 VariantSerialization.ApplyParent(
                     parentSession.WorkingCopy, variant, new HashSet<string>(StringComparer.Ordinal));
             }
 
             CaptureDocumentState(document, variant, true);
             VariantSourceDatabase.Save(assetPath, document);
+            edit.Complete();
         }
 
         internal static void OverrideAll(ScriptableVariant variant)
@@ -251,7 +313,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             VariantSourceDatabase.Save(assetPath, document);
         }
 
-        internal static void RemoveOrphanOverrides(ScriptableVariant variant)
+        internal static void RemoveOrphanOverrides(ScriptableVariant variant, ScriptableVariant baseline = null)
         {
             if (!VariantSourceDatabase.TryLoadForEdit(variant, out var document, out var assetPath, out _))
             {
@@ -265,7 +327,9 @@ namespace DCFApixels.ScriptableVariants.Editor
                 document.RemoveValue(orphans[i]);
             }
 
-            PruneValues(document, variant.GetType(), !string.IsNullOrEmpty(document.ParentGuid));
+            if (baseline != null && !string.IsNullOrEmpty(document.ParentGuid))
+                foreach (var path in GetDifferingOverridePaths(variant, baseline)) AddOverridePath(document, path);
+            CaptureDocumentState(document, variant, !string.IsNullOrEmpty(document.ParentGuid));
             VariantSourceDatabase.Save(assetPath, document);
         }
 
@@ -346,7 +410,8 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static bool HasParent(ScriptableVariant variant)
         {
-            return GetParent(variant) != null;
+            return VariantSourceDatabase.TryLoad(variant, out var document, out _, out _) &&
+                !string.IsNullOrEmpty(document.ParentGuid);
         }
 
         internal static IReadOnlyList<string> GetOverridePaths(ScriptableVariant variant)
@@ -436,8 +501,9 @@ namespace DCFApixels.ScriptableVariants.Editor
                 return Array.Empty<string>();
             }
 
-            return document.OverridePaths
-                .Where(path => !VariantSerialization.IsKnownPath(variant.GetType(), path))
+            return document.OverridePaths.Where(path => !VariantSerialization.IsKnownPath(variant.GetType(), path))
+                .Concat(document.Values.Where(record => !VariantSerialization.TryGetPathType(variant.GetType(), record.Path, out _))
+                    .Select(record => record.Path)).Distinct(StringComparer.Ordinal)
                 .ToArray();
         }
 
@@ -457,8 +523,8 @@ namespace DCFApixels.ScriptableVariants.Editor
         internal static ScriptableVariant CreateRoot(Type variantType, string path)
         {
             var document = CreateDocument(variantType, out var defaults);
-            CaptureDocumentState(document, defaults, false);
-            UnityEngine.Object.DestroyImmediate(defaults);
+            try { CaptureDocumentState(document, defaults, false); }
+            finally { UnityEngine.Object.DestroyImmediate(defaults); }
             return SaveNewAsset(path, document);
         }
 
@@ -580,6 +646,11 @@ namespace DCFApixels.ScriptableVariants.Editor
             ScriptableVariant variant,
             bool hasParent)
         {
+            ValidateUnityFields(variant);
+            foreach (var record in document.Values)
+                if (!VariantSerialization.TryGetPathType(variant.GetType(), record.Path, out _))
+                    throw new InvalidOperationException($"Unknown stored field '{record.Path}' was retained. " +
+                        "Restore its declaration or explicitly remove orphan data before saving values.");
             var paths = new HashSet<string>(StringComparer.Ordinal);
             if (hasParent)
             {
@@ -595,12 +666,14 @@ namespace DCFApixels.ScriptableVariants.Editor
                 }
             }
 
+            // A whole inline override already owns its nested local values. Avoid overlapping
+            // records, which would deserialize the same managed reference graph twice.
+            var owned = new List<string>();
             foreach (var path in paths)
-            {
-                CaptureValue(document, variant, path);
-            }
-
-            PruneValues(document, variant.GetType(), hasParent);
+                for (var dot = path.LastIndexOf('.'); dot > 0; dot = path.LastIndexOf('.', dot - 1))
+                    if (paths.Contains(path.Substring(0, dot))) { owned.Add(path); break; }
+            paths.ExceptWith(owned);
+            VariantValueSerializer.CaptureValues(document, variant, paths);
         }
 
         private static void CaptureValue(
@@ -608,20 +681,8 @@ namespace DCFApixels.ScriptableVariants.Editor
             ScriptableVariant variant,
             string propertyPath)
         {
-            if (!VariantSerialization.TryGetPathValue(
-                    variant,
-                    propertyPath,
-                    out var value,
-                    out var declaredType))
-            {
-                return;
-            }
-
-            document.SetValue(new VariantValueRecord
-            {
-                Path = propertyPath,
-                Value = VariantValueSerializer.Serialize(value, declaredType),
-            });
+            // Updating an isolated token could orphan shared $id/$ref entries.
+            CaptureDocumentState(document, variant, !string.IsNullOrEmpty(document.ParentGuid));
         }
 
         private static void PruneValues(VariantSourceDocument document, Type variantType, bool hasParent)
@@ -641,7 +702,8 @@ namespace DCFApixels.ScriptableVariants.Editor
                 }
             }
 
-            document.Values.RemoveAll(record => !retained.Contains(record.Path));
+            document.Values.RemoveAll(record => !retained.Contains(record.Path) &&
+                VariantSerialization.TryGetPathType(variantType, record.Path, out _));
         }
 
         private static void AddOverridePath(VariantSourceDocument document, string propertyPath)
@@ -714,6 +776,7 @@ namespace DCFApixels.ScriptableVariants.Editor
                     var propertyPath = childProperty.propertyPath;
                     if (!VariantSerialization.IsKnownPath(variantType, propertyPath))
                     {
+                        enterChildren = false; // includes local managed graphs, which may be cyclic
                         continue;
                     }
 
@@ -754,6 +817,7 @@ namespace DCFApixels.ScriptableVariants.Editor
                     enterChildren = true;
                     if (!VariantSerialization.IsKnownPath(type, property.propertyPath))
                     {
+                        enterChildren = false;
                         continue;
                     }
 
@@ -764,6 +828,51 @@ namespace DCFApixels.ScriptableVariants.Editor
                         enterChildren = false;
                     }
                 }
+            }
+        }
+
+        private sealed class WorkingEdit : IDisposable
+        {
+            private readonly ScriptableVariant[] _targets;
+            private readonly ScriptableVariant[] _before;
+            private bool _complete;
+
+            internal WorkingEdit(params ScriptableVariant[] targets)
+            {
+                _targets = targets;
+                _before = new ScriptableVariant[targets.Length];
+                try
+                {
+                    for (var i = 0; i < targets.Length; i++)
+                    {
+                        _before[i] = ScriptableObject.CreateInstance(targets[i].GetType()) as ScriptableVariant;
+                        CopyEditingValues(targets[i], _before[i]);
+                        _before[i].hideFlags = HideFlags.HideAndDontSave;
+                    }
+                }
+                catch { _complete = true; Dispose(); throw; }
+            }
+
+            internal void Complete() { _complete = true; }
+            public void Dispose()
+            {
+                Exception failure = null;
+                for (var i = 0; i < _before.Length; i++)
+                {
+                    if (_before[i] == null) continue;
+                    try
+                    {
+                        if (!_complete && _targets[i] != null)
+                        {
+                            var flags = _targets[i].hideFlags;
+                            CopyEditingValues(_before[i], _targets[i]);
+                            _targets[i].hideFlags = flags;
+                        }
+                    }
+                    catch (Exception exception) { failure = failure ?? exception; }
+                    finally { UnityEngine.Object.DestroyImmediate(_before[i]); }
+                }
+                if (failure != null) throw new InvalidOperationException("Could not restore an in-memory variant edit.", failure);
             }
         }
     }

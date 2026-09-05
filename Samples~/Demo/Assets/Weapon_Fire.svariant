@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 3,
   "scriptGuid": "e5e188f9a6d94bfc88d6fd1aa16f99fa",
   "typeName": "DCFApixels.ScriptableVariants.Demo.DemoWeaponConfig, DCFApixels.ScriptableVariants.Demo",
   "parentGuid": "7d5a8c0f002a45c48aa807254462baf0",
@@ -27,12 +27,7 @@
     },
     {
       "path": "_visuals._projectileColor",
-      "value": {
-        "r": 1.0,
-        "g": 0.25,
-        "b": 0.05,
-        "a": 1.0
-      }
+      "value": [1.0, 0.25, 0.05, 1.0]
     }
   ]
 }

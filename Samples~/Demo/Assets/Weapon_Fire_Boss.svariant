@@ -1,5 +1,5 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 3,
   "scriptGuid": "e5e188f9a6d94bfc88d6fd1aa16f99fa",
   "typeName": "DCFApixels.ScriptableVariants.Demo.DemoWeaponConfig, DCFApixels.ScriptableVariants.Demo",
   "parentGuid": "a6fc9175435448ce9cc0558d046200be",

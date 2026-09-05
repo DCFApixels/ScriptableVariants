@@ -67,6 +67,15 @@ namespace DCFApixels.ScriptableVariants
             }
         }
 
+        internal static void ResetLocalValues(ScriptableVariant defaults, ScriptableVariant destination)
+        {
+            var context = new Dictionary<object, object>(ObjectReferenceComparer.Instance);
+            foreach (var path in GetLocalPaths(destination.GetType()))
+                if (!TryGetPathValue(defaults, path, out var value, out _) ||
+                    !TrySetPathValue(destination, path, CloneValue(value, context)))
+                    throw new InvalidOperationException($"Cannot restore local defaults for '{path}'.");
+        }
+
         internal static bool IsKnownPath(Type rootType, string propertyPath)
         {
             return TryGetFieldPath(rootType, propertyPath, out _);
@@ -107,6 +116,20 @@ namespace DCFApixels.ScriptableVariants
             ScriptableVariant destination,
             string propertyPath)
         {
+            return CopyPaths(source, destination, new[] {propertyPath});
+        }
+
+        internal static bool CopyPaths(ScriptableVariant source, ScriptableVariant destination, IEnumerable<string> paths)
+        {
+            var context = new Dictionary<object, object>(ObjectReferenceComparer.Instance);
+            foreach (var path in paths)
+                if (!CopyPathValue(source, destination, path, context)) return false;
+            return true;
+        }
+
+        private static bool CopyPathValue(ScriptableVariant source, ScriptableVariant destination,
+            string propertyPath, Dictionary<object, object> cloneContext)
+        {
             if (source == null || destination == null || source.GetType() != destination.GetType() ||
                 !TryGetFieldPath(source.GetType(), propertyPath, out var fields))
             {
@@ -126,7 +149,6 @@ namespace DCFApixels.ScriptableVariants
                 sourceValue = fields[i].GetValue(sourceValue);
             }
 
-            var cloneContext = new Dictionary<object, object>(ObjectReferenceComparer.Instance);
             var clonedValue = CloneValue(sourceValue, cloneContext);
             return TrySetPathValue(
                 destination,
@@ -372,6 +394,13 @@ namespace DCFApixels.ScriptableVariants
                     colorSpace = gradient.colorSpace,
                 };
                 clone.SetKeys(gradient.colorKeys, gradient.alphaKeys);
+                visited[value] = clone;
+                return clone;
+            }
+
+            if (value is RectOffset offset)
+            {
+                var clone = new RectOffset(offset.left, offset.right, offset.top, offset.bottom);
                 visited[value] = clone;
                 return clone;
             }
@@ -749,6 +778,10 @@ namespace DCFApixels.ScriptableVariants
                     continue;
                 }
 
+                if (field.IsDefined(typeof(SerializeReference), true) || field.FieldType.IsArray ||
+                    field.FieldType.IsGenericType && field.FieldType.GetGenericTypeDefinition() == typeof(List<>))
+                    ValidateAtomicLocalSchema(field.FieldType, path, new HashSet<Type>());
+
                 if (!field.IsDefined(typeof(SerializeReference), true) && IsInlineComposite(field.FieldType))
                 {
                     if (!ancestors.Add(field.FieldType))
@@ -792,6 +825,68 @@ namespace DCFApixels.ScriptableVariants
             }
 
             return null;
+        }
+
+        internal static void ValidateAtomicLocalSchema(Type type, string owner, HashSet<Type> visited)
+        {
+            if (type == null || !visited.Add(type)) return;
+            if (type.IsArray) { ValidateAtomicLocalSchema(type.GetElementType(), owner, visited); return; }
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+            { ValidateAtomicLocalSchema(type.GetGenericArguments()[0], owner, visited); return; }
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string) || IsUnityNamespace(type) ||
+                typeof(Object).IsAssignableFrom(type)) return;
+            foreach (var field in GetSerializableFields(type))
+            {
+                if (field.IsDefined(typeof(VariantLocalAttribute), true))
+                    throw new InvalidOperationException($"[VariantLocal] on '{type.Name}.{field.Name}' is inside atomic value '{owner}'. " +
+                        "Mark the owning collection/reference local instead; per-element local inheritance is not supported.");
+                ValidateAtomicLocalSchema(field.FieldType, owner, visited);
+            }
+        }
+
+        internal static void ValidateLocalValues(ScriptableVariant variant)
+        {
+            VisitFields(variant, GetRootFields(variant.GetType()), string.Empty);
+            void VisitFields(object value, FieldInfo[] fields, string prefix)
+            {
+                if (value == null) return;
+                foreach (var field in fields)
+                {
+                    if (field.IsDefined(typeof(VariantLocalAttribute), true)) continue;
+                    var path = string.IsNullOrEmpty(prefix) ? field.Name : prefix + "." + field.Name;
+                    var nested = field.GetValue(value);
+                    if (field.IsDefined(typeof(SerializeReference), true) || field.FieldType.IsArray ||
+                        field.FieldType.IsGenericType && field.FieldType.GetGenericTypeDefinition() == typeof(List<>))
+                        ValidateAtomicLocalValue(nested, path);
+                    else if (IsInlineComposite(field.FieldType))
+                        VisitFields(nested, GetSerializableFields(field.FieldType), path);
+                }
+            }
+        }
+
+        internal static void ValidateAtomicLocalValue(object value, string owner)
+        {
+            Visit(value, new HashSet<object>(ObjectReferenceComparer.Instance));
+            void Visit(object current, HashSet<object> visited)
+            {
+                if (current == null || current is Object || current is string) return;
+                var type = current.GetType();
+                if (type.IsPrimitive || type.IsEnum || IsUnityNamespace(type) || !visited.Add(current)) return;
+                if (current is IList list)
+                {
+                    foreach (var element in list) Visit(element, visited);
+                    return;
+                }
+                if (!type.IsDefined(typeof(SerializableAttribute), false))
+                    throw new InvalidOperationException($"Runtime type '{type.FullName}' in atomic value '{owner}' must be [Serializable].");
+                foreach (var field in GetSerializableFields(type))
+                {
+                    if (field.IsDefined(typeof(VariantLocalAttribute), true))
+                        throw new InvalidOperationException($"[VariantLocal] on '{type.Name}.{field.Name}' is inside atomic value '{owner}'. " +
+                            "Mark its owning collection/reference local instead.");
+                    Visit(field.GetValue(current), visited);
+                }
+            }
         }
 
         private sealed class ObjectReferenceComparer : IEqualityComparer<object>

@@ -6,10 +6,13 @@ namespace DCFApixels.ScriptableVariants.Tests
 {
     public sealed class ScriptableVariantTestAsset : ScriptableVariant
     {
-        public int PublicNumber;
+        [Header("Native number"), Min(0)] public int PublicNumber;
         public AnimationCurve Curve = new AnimationCurve();
         public Gradient Gradient = new Gradient();
         public Bounds Bounds;
+        public UnityEngine.Object Reference;
+        [SerializeReference] public ScriptableVariantTestNode A;
+        [SerializeReference] public ScriptableVariantTestNode B;
 
         [SerializeField]
         private ScriptableVariantTestNestedData _nested = new ScriptableVariantTestNestedData();
@@ -17,7 +20,7 @@ namespace DCFApixels.ScriptableVariants.Tests
         [SerializeField]
         private List<int> _values = new List<int>();
 
-        [SerializeField, VariantLocal]
+        [Header("Local section"), TextArea, SerializeField, VariantLocal]
         private string _localNote = "local default";
 
         public int NestedAmount => _nested.Amount;
@@ -42,9 +45,16 @@ namespace DCFApixels.ScriptableVariants.Tests
     }
 
     [Serializable]
+    public sealed class ScriptableVariantTestNode
+    {
+        public int Amount;
+        [SerializeReference] public ScriptableVariantTestNode Next;
+    }
+
+    [Serializable]
     public sealed class ScriptableVariantTestNestedData
     {
-        [SerializeField]
+        [Header("Nested number"), Min(0), SerializeField]
         private int _amount;
 
         [SerializeField]

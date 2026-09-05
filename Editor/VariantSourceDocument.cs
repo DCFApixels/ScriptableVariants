@@ -14,7 +14,11 @@ namespace DCFApixels.ScriptableVariants.Editor
     [JsonObject(MemberSerialization.OptIn)]
     internal sealed class VariantSourceDocument
     {
-        internal const int CurrentFormatVersion = 1;
+        internal const int CurrentFormatVersion = 3;
+
+        // Exact revision read from disk. Never serialize it into the authoring format.
+        [JsonIgnore] internal string SourceJson;
+        private Dictionary<string, VariantValueRecord> _valueIndex;
 
         [JsonProperty("formatVersion", Order = 0)]
         public int FormatVersion = CurrentFormatVersion;
@@ -39,6 +43,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             return new VariantSourceDocument
             {
                 FormatVersion = FormatVersion,
+                SourceJson = SourceJson,
                 ScriptGuid = ScriptGuid,
                 TypeName = TypeName,
                 ParentGuid = ParentGuid,
@@ -51,9 +56,16 @@ namespace DCFApixels.ScriptableVariants.Editor
             };
         }
 
+        internal void ValidateFormat()
+        {
+            if (FormatVersion != CurrentFormatVersion)
+                throw new JsonSerializationException($"Unsupported variant format version {FormatVersion}. " +
+                    $"Expected {CurrentFormatVersion}; legacy formats are not migrated.");
+        }
+
         public void Normalize()
         {
-            FormatVersion = CurrentFormatVersion;
+            ValidateFormat();
             ParentGuid = string.IsNullOrWhiteSpace(ParentGuid) ? null : ParentGuid.Trim();
             var normalizedOverrides = (OverridePaths ?? new List<string>())
                 .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -90,33 +102,33 @@ namespace DCFApixels.ScriptableVariants.Editor
             var records = new Dictionary<string, VariantValueRecord>(StringComparer.Ordinal);
             foreach (var record in Values ?? new List<VariantValueRecord>())
             {
-                if (record == null || string.IsNullOrWhiteSpace(record.Path))
+                if (record == null || string.IsNullOrWhiteSpace(record.Path) || record.Value == null)
                 {
-                    continue;
+                    throw new JsonSerializationException("A stored value must have a path and an explicit JSON value.");
                 }
 
                 record.Path = record.Path.Trim();
-                records[record.Path] = record;
+                if (records.ContainsKey(record.Path))
+                {
+                    throw new JsonSerializationException($"Duplicate stored value '{record.Path}'.");
+                }
+                records.Add(record.Path, record);
             }
 
             Values = records.Values.OrderBy(record => record.Path, StringComparer.Ordinal).ToList();
+            _valueIndex = records;
         }
 
         public VariantValueRecord FindValue(string path)
         {
-            for (var i = 0; i < Values.Count; i++)
-            {
-                if (string.Equals(Values[i].Path, path, StringComparison.Ordinal))
-                {
-                    return Values[i];
-                }
-            }
-
-            return null;
+            if (_valueIndex == null || _valueIndex.Count != Values.Count)
+                _valueIndex = Values.ToDictionary(record => record.Path, StringComparer.Ordinal);
+            return _valueIndex.TryGetValue(path, out var value) ? value : null;
         }
 
         public void SetValue(VariantValueRecord record)
         {
+            _valueIndex = null;
             for (var i = 0; i < Values.Count; i++)
             {
                 if (!string.Equals(Values[i].Path, record.Path, StringComparison.Ordinal))
@@ -133,6 +145,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         public void RemoveValue(string path)
         {
+            _valueIndex = null;
             Values.RemoveAll(record => string.Equals(record.Path, path, StringComparison.Ordinal));
         }
     }
@@ -143,7 +156,7 @@ namespace DCFApixels.ScriptableVariants.Editor
         [JsonProperty("path", Order = 0)]
         public string Path;
 
-        [JsonProperty("value", Order = 1)]
+        [JsonProperty("value", Order = 1, NullValueHandling = NullValueHandling.Include)]
         public JToken Value;
     }
 
@@ -153,6 +166,8 @@ namespace DCFApixels.ScriptableVariants.Editor
         internal const string Extension = "svariant";
 
         private const double ImportDelaySeconds = 0.15d;
+        private const int MaximumCachedDocuments = 128;
+        private const int MaximumCachedCharacters = 4 * 1024 * 1024;
         private static readonly Dictionary<string, CacheEntry> Cache =
             new Dictionary<string, CacheEntry>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, double> PendingImports =
@@ -164,12 +179,15 @@ namespace DCFApixels.ScriptableVariants.Editor
             DateParseHandling = DateParseHandling.None,
             ObjectCreationHandling = ObjectCreationHandling.Replace,
             CheckAdditionalContent = true,
+            MaxDepth = 128,
+            MissingMemberHandling = MissingMemberHandling.Error,
         };
 
         static VariantSourceDatabase()
         {
             EditorApplication.update -= FlushPendingImports;
             EditorApplication.update += FlushPendingImports;
+            EditorApplication.delayCall += VariantSourceTransaction.Recover;
         }
 
         internal static bool IsVariantSourcePath(string assetPath)
@@ -185,6 +203,11 @@ namespace DCFApixels.ScriptableVariants.Editor
             out string error)
         {
             assetPath = variant != null ? VariantEditingSession.GetAssetPath(variant) : null;
+            if (VariantEditingSession.TryGetDocument(variant, out document))
+            {
+                error = null;
+                return true;
+            }
             if (!IsVariantSourcePath(assetPath))
             {
                 document = null;
@@ -197,14 +220,26 @@ namespace DCFApixels.ScriptableVariants.Editor
 
         internal static bool TryLoad(string assetPath, out VariantSourceDocument document, out string error)
         {
-            var fullPath = FileUtil.GetPhysicalPath(assetPath);
-            var fileInfo = new FileInfo(fullPath);
-            if (Cache.TryGetValue(assetPath, out var cached) && fileInfo.Exists &&
-                cached.Length == fileInfo.Length && cached.WriteTimeUtc == fileInfo.LastWriteTimeUtc.Ticks)
+            // Inspector queries are memory-only between bounded checks; mutations always verify
+            // the exact source text again, including edits that preserve timestamps and length.
+            if (Cache.TryGetValue(assetPath, out var cached) &&
+                EditorApplication.timeSinceStartup - cached.CheckedAt < 0.5d)
             {
                 document = cached.Document;
                 error = null;
                 return true;
+            }
+
+            if (cached != null)
+            {
+                var info = new FileInfo(FileUtil.GetPhysicalPath(assetPath));
+                if (info.Exists && info.Length == cached.Length && info.LastWriteTimeUtc.Ticks == cached.WriteTimeUtc)
+                {
+                    cached.CheckedAt = EditorApplication.timeSinceStartup;
+                    document = cached.Document;
+                    error = null;
+                    return true;
+                }
             }
 
             return TryLoadUncached(assetPath, out document, out error);
@@ -216,6 +251,7 @@ namespace DCFApixels.ScriptableVariants.Editor
             out string assetPath,
             out string error)
         {
+            VariantEditingSession.AssertCurrent(variant);
             if (!TryLoad(variant, out document, out assetPath, out error))
             {
                 return false;
@@ -223,6 +259,7 @@ namespace DCFApixels.ScriptableVariants.Editor
 
             // Commands must not mutate the read cache before their save succeeds.
             document = document.Clone();
+            ScriptableVariantImporter.RemapFormerPaths(document, variant.GetType());
             return true;
         }
 
@@ -247,7 +284,10 @@ namespace DCFApixels.ScriptableVariants.Editor
                     return false;
                 }
 
-                document = DeserializeDocument(File.ReadAllText(fullPath));
+                if (new FileInfo(fullPath).Length > 32 * 1024 * 1024)
+                    throw new IOException("Variant sources larger than 32 MiB are not supported.");
+                var json = File.ReadAllText(fullPath);
+                document = DeserializeDocument(json);
                 if (document == null)
                 {
                     error = "Variant source contains no document.";
@@ -263,12 +303,15 @@ namespace DCFApixels.ScriptableVariants.Editor
                 }
 
                 document.Normalize();
-                Cache[assetPath] = CreateCacheEntry(fullPath, document);
+                document.SourceJson = json;
+                CacheDocument(assetPath, fullPath, document);
                 error = null;
                 return true;
             }
             catch (Exception exception)
             {
+                document = null;
+                Cache.Remove(assetPath);
                 error = $"Could not read variant source: {exception.Message}";
                 return false;
             }
@@ -292,50 +335,83 @@ namespace DCFApixels.ScriptableVariants.Editor
             using (var text = new StringReader(json))
             using (var reader = new JsonTextReader(text))
             {
-                return JsonSerializer.Create(DocumentSettings).Deserialize<VariantSourceDocument>(reader);
+                reader.DateParseHandling = DateParseHandling.None;
+                reader.MaxDepth = 128;
+                var token = JToken.Load(reader, new JsonLoadSettings
+                {
+                    DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error,
+                });
+                if (reader.Read()) throw new JsonReaderException("Unexpected content after the variant document.");
+                if (!(token is JObject)) throw new JsonSerializationException("A variant document must be an object.");
+                if (token["formatVersion"]?.Type != JTokenType.Integer)
+                    throw new JsonSerializationException("Variant source must declare an integer formatVersion.");
+                if (!(token["values"] is JArray) || !(token["overridePaths"] is JArray))
+                    throw new JsonSerializationException("Variant source must contain values and overridePaths arrays.");
+                return token.ToObject<VariantSourceDocument>(JsonSerializer.Create(DocumentSettings));
             }
         }
 
         internal static void Save(
             string assetPath, VariantSourceDocument document, bool importImmediately = false, bool recordUndo = true)
         {
-            if (!IsVariantSourcePath(assetPath))
+            SaveBatch(new[] {assetPath}, new[] {document}, importImmediately, recordUndo);
+        }
+
+        internal static void SaveBatch(IReadOnlyList<string> paths, IReadOnlyList<VariantSourceDocument> documents,
+            bool importImmediately = false, bool recordUndo = true)
+        {
+            if (paths.Count == 0) return;
+            var committed = false;
+            AssetDatabase.StartAssetEditing();
+            try
             {
-                throw new ArgumentException("Variant source path must end with .svariant.", nameof(assetPath));
+                var changes = VariantSourceTransaction.Commit(paths, documents);
+                committed = true;
+                // No observers, Undo states or import jobs see a half-written batch. Once disk
+                // is committed, a notification failure must not tell callers to roll back memory.
+                foreach (var change in changes)
+                    if (recordUndo) AfterCommit(() => VariantSourceUndo.Record(change.Path, change.Before, change.After));
+                for (var i = 0; i < paths.Count; i++)
+                {
+                    var path = paths[i];
+                    var document = documents[i];
+                    document.SourceJson = SerializeDocument(document);
+                    AfterCommit(() => CacheDocument(path, FileUtil.GetPhysicalPath(path), document.Clone()));
+                }
+                foreach (var change in changes)
+                {
+                    QueueImport(change.Path);
+                    AfterCommit(() => VariantEditingSession.SourceSaved(change.Path, recordUndo));
+                }
             }
-
-            var json = SerializeDocument(document);
-            var fullPath = FileUtil.GetPhysicalPath(assetPath);
-            var previousJson = File.Exists(fullPath) ? File.ReadAllText(fullPath) : null;
-            if (string.Equals(previousJson, json, StringComparison.Ordinal))
+            finally
             {
-                Cache[assetPath] = CreateCacheEntry(fullPath, document);
-                return;
+                if (committed) AfterCommit(AssetDatabase.StopAssetEditing);
+                else AssetDatabase.StopAssetEditing();
             }
-
-            if (File.Exists(fullPath) && !AssetDatabase.MakeEditable(assetPath))
-            {
-                throw new IOException($"Variant source is not editable: {assetPath}");
-            }
-
-            WriteSourceAtomically(fullPath, json);
-            if (recordUndo)
-            {
-                VariantSourceUndo.Record(assetPath, previousJson, json);
-            }
-
-            Cache[assetPath] = CreateCacheEntry(fullPath, document);
-            VariantEditingSession.SourceSaved(assetPath);
-
             if (importImmediately)
+                foreach (var path in paths) AfterCommit(() => ImportNow(path));
+        }
+
+        private static void AfterCommit(Action action)
+        {
+            try { action(); }
+            catch (Exception exception)
             {
-                PendingImports.Remove(assetPath);
-                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+                Debug.LogError($"Variant source was saved, but an Editor update failed: {exception.Message}. " +
+                    "Reopen the Inspector or reimport the source; do not assume that the file write was rolled back.");
             }
-            else
-            {
-                PendingImports[assetPath] = EditorApplication.timeSinceStartup;
-            }
+        }
+
+        internal static void QueueImport(string path) => PendingImports[path] = EditorApplication.timeSinceStartup;
+
+        internal static void AssertRevision(string assetPath, string expectedJson)
+        {
+            var fullPath = FileUtil.GetPhysicalPath(assetPath);
+            var actual = File.Exists(fullPath) ? File.ReadAllText(fullPath) : null;
+            if (!string.Equals(actual, expectedJson, StringComparison.Ordinal))
+                throw new IOException($"Variant source changed outside this edit: '{assetPath}'. " +
+                    "Pending edits were kept. Reload the source or resolve the conflict before saving.");
         }
 
         internal static void WriteSourceAtomically(string fullPath, string json)
@@ -346,7 +422,12 @@ namespace DCFApixels.ScriptableVariants.Editor
                 "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
             try
             {
-                File.WriteAllText(temporaryPath, json, new UTF8Encoding(false));
+                var bytes = new UTF8Encoding(false).GetBytes(json);
+                using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
                 if (File.Exists(fullPath))
                 {
                     File.Replace(temporaryPath, fullPath, null);
@@ -370,13 +451,14 @@ namespace DCFApixels.ScriptableVariants.Editor
             if (!string.IsNullOrEmpty(assetPath))
             {
                 Cache.Remove(assetPath);
+                PendingImports.Remove(assetPath);
             }
         }
 
         internal static void ImportNow(string assetPath)
         {
             PendingImports.Remove(assetPath);
-            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+            AssetDatabase.ImportAsset(assetPath);
         }
 
         private static void FlushPendingImports()
@@ -394,26 +476,39 @@ namespace DCFApixels.ScriptableVariants.Editor
             for (var i = 0; i < ready.Length; i++)
             {
                 PendingImports.Remove(ready[i]);
-                AssetDatabase.ImportAsset(ready[i], ImportAssetOptions.ForceUpdate);
+                if (File.Exists(FileUtil.GetPhysicalPath(ready[i]))) AssetDatabase.ImportAsset(ready[i]);
             }
         }
 
         private static CacheEntry CreateCacheEntry(string fullPath, VariantSourceDocument document)
         {
-            var fileInfo = new FileInfo(fullPath);
+            var info = new FileInfo(fullPath);
             return new CacheEntry
             {
                 Document = document,
-                Length = fileInfo.Exists ? fileInfo.Length : 0L,
-                WriteTimeUtc = fileInfo.Exists ? fileInfo.LastWriteTimeUtc.Ticks : 0L,
+                CheckedAt = EditorApplication.timeSinceStartup,
+                Length = info.Exists ? info.Length : 0,
+                WriteTimeUtc = info.Exists ? info.LastWriteTimeUtc.Ticks : 0,
             };
         }
 
         private sealed class CacheEntry
         {
             public VariantSourceDocument Document;
+            public double CheckedAt;
             public long Length;
             public long WriteTimeUtc;
+        }
+
+        private static void CacheDocument(string path, string fullPath, VariantSourceDocument document)
+        {
+            Cache.Remove(path);
+            var length = document.SourceJson?.Length ?? 0;
+            if (length > MaximumCachedCharacters) return;
+            while (Cache.Count > 0 && (Cache.Count >= MaximumCachedDocuments ||
+                Cache.Values.Sum(entry => (long)(entry.Document.SourceJson?.Length ?? 0)) + length > MaximumCachedCharacters))
+                Cache.Remove(Cache.OrderBy(pair => pair.Value.CheckedAt).First().Key);
+            Cache[path] = CreateCacheEntry(fullPath, document);
         }
     }
 }
