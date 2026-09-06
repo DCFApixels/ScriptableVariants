@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -18,13 +19,13 @@ namespace DCFApixels.ScriptableVariants.Editor
     {
         [SerializeField] private string _typeName;
 
-        internal static void Begin(Type variantType, string directory)
+        internal static void Begin(Type variantType, string directory, string fileName = null)
         {
             if (!ScriptableVariantCreateMenu.IsAssetDirectory(directory) || !AssetDatabase.IsValidFolder(directory))
                 throw new InvalidOperationException("The target folder no longer exists under Assets. Reopen the creation window from the target folder.");
+            var path = directory + "/" + GetDefaultFileName(variantType, fileName);
             var action = CreateInstance<VariantAssetCreationAction>();
             action._typeName = variantType.AssemblyQualifiedName;
-            var path = directory + "/" + ObjectNames.NicifyVariableName(variantType.Name) + "." + VariantSourceDatabase.Extension;
             try
             {
                 // Public API only. Unity 6.4 replaced int instance IDs with EntityId.
@@ -63,5 +64,17 @@ namespace DCFApixels.ScriptableVariants.Editor
         internal static string EnsureSourceExtension(string path) =>
             path.EndsWith("." + VariantSourceDatabase.Extension, StringComparison.OrdinalIgnoreCase)
                 ? path : path + "." + VariantSourceDatabase.Extension;
+
+        internal static string GetDefaultFileName(Type type, string fileName)
+        {
+            if (type == null) throw new ArgumentNullException(nameof(type));
+            var name = string.IsNullOrWhiteSpace(fileName)
+                ? ObjectNames.NicifyVariableName(type.Name) : fileName.Trim();
+            if (name == "." || name == ".." || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+                name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0)
+                throw new ArgumentException(
+                    "CreateVariantMenu.fileName must be a filename, not a folder path.", nameof(fileName));
+            return EnsureSourceExtension(name);
+        }
     }
 }

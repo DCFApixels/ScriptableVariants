@@ -41,6 +41,7 @@ using DCFApixels.ScriptableVariants;
 using TriInspector;
 using UnityEngine;
 
+[CreateVariantMenu(menuName = "Configs/Weapons/Weapon", fileName = "New Weapon", order = 100)]
 public sealed class WeaponConfig : ScriptableVariant
 {
     [Min(0), Slider(0, 100)]
@@ -53,11 +54,18 @@ public sealed class WeaponConfig : ScriptableVariant
 }
 ```
 
-Create the source through **Assets → Create → Scriptable Variant...**. Search by type name,
-namespace or assembly, select a type, then double-click, press Enter or click **Create**. Enter the
-filename in the Project window; cancelling name entry creates no source file. The target folder is
-shown in the picker (package selections fall back to `Assets`). Use arrow keys to choose a type and
-Escape to close the picker. It uses public Unity APIs, without generated menu code or internal API reflection.
+Create the source through **Assets → Create → Scriptable Variant...**. The picker presents nested
+groups configured by `[CreateVariantMenu]`. Entering text switches it to a flat list containing only
+creatable options: group rows are omitted, matching uses the complete creation path, and every result
+shows that path together with its type context. Enter the filename in the Project window; cancelling
+name entry creates no source file. The target folder is shown in the picker (package selections fall
+back to `Assets`). Use arrow keys to navigate, Enter to create and Escape to close the picker.
+
+`menuName` contains slash-separated groups and the final option name. `fileName` optionally supplies
+the initial filename; it must not contain a folder path. `order` sorts options and places each group
+according to its lowest-order child. The attribute is optional and is not inherited: unannotated
+types appear at the root with their nicified type names. The implementation uses public Unity APIs,
+without generated menu code or internal API reflection.
 Do not use `[CreateAssetMenu]` for variant types: Unity's built-in command creates a regular
 `.asset`, which has no variant source metadata.
 

@@ -21,6 +21,7 @@ namespace DCFApixels.ScriptableVariants.Demo
         public Vector3 MuzzleOffset => _muzzleOffset;
     }
 
+    [CreateVariantMenu(menuName = "Demo/Weapons/Weapon Config", fileName = "Weapon Config")]
     public sealed class DemoWeaponConfig : ScriptableVariant
     {
         [Header("Identity")]

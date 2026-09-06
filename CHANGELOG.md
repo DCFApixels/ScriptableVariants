@@ -4,6 +4,9 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Added optional CreateVariantMenu metadata for nested creation groups, default filenames and
+  ordering in the existing UI Toolkit picker. Search flattens only creatable options, matches their
+  complete menu paths and displays those paths in result rows; grouping rows never enter results.
 - Fixed Assets/Create/Scriptable Variant silently doing nothing without an IMGUI event; type
   selection now uses a UI Toolkit utility window with search, a virtualized type list, keyboard
   navigation, a destination hint and native Project-window filename entry. No code generation or
