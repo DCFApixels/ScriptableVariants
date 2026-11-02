@@ -4,6 +4,10 @@ All notable changes to this package are documented in this file.
 
 ## Unreleased
 
+- Resolve stored types from Unity's current loaded assemblies on Unity 6.5+ to avoid
+  unloaded assembly references. Suppress serialization analyzer warnings only on the
+  two deliberately invalid regression fixtures; their assertions remain unchanged.
+
 - Added optional CreateVariantMenu metadata for nested creation groups, default filenames and
   ordering in the existing UI Toolkit picker. Search flattens only creatable options, matches their
   complete menu paths and displays those paths in result rows; grouping rows never enter results.

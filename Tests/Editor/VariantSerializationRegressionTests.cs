@@ -254,12 +254,14 @@ namespace DCFApixels.ScriptableVariants.Tests
             [FormerlySerializedAs("oldAmount")] public int Amount;
         }
 
+#pragma warning disable UAC1018 // Deliberate name collision exercises the serializer's resolution rules.
         [Serializable]
         private sealed class NameCollision
         {
             public int Old;
             [FormerlySerializedAs("Old")] public int Current;
         }
+#pragma warning restore UAC1018
 
         [Serializable]
         private sealed class NativeValues
@@ -269,11 +271,13 @@ namespace DCFApixels.ScriptableVariants.Tests
             public Bounds Bounds;
         }
 
+#pragma warning disable UAC1005 // Deliberately invalid inline recursion must be rejected by schema validation.
         [Serializable]
         private sealed class RecursiveInline
         {
             public RecursiveInline Next;
         }
+#pragma warning restore UAC1005
 
         [Serializable]
         private sealed class ManagedNode

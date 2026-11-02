@@ -208,7 +208,12 @@ namespace DCFApixels.ScriptableVariants.Editor
             var separator = name.IndexOf(',');
             var typeName = separator < 0 ? name : name.Substring(0, separator).Trim();
             var assemblyName = separator < 0 ? null : name.Substring(separator + 1).Trim();
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+#if UNITY_6000_5_OR_NEWER
+            var assemblies = UnityEngine.Assemblies.CurrentAssemblies.GetLoadedAssemblies();
+#else
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+#endif
+            foreach (var assembly in assemblies)
             {
                 if (assemblyName != null && assembly.GetName().Name != assemblyName && assembly.FullName != assemblyName) continue;
                 var type = assembly.GetType(typeName, false);
